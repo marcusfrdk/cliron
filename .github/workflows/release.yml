@@ -58,7 +58,7 @@ jobs:
 
   build:
     needs: verify
-    uses: ./.github/workflows/build.yml
+    uses: $/.github/workflows/build.yml
 
   draft:
     name: Draft GitHub release

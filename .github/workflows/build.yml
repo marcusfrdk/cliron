@@ -11,6 +11,21 @@ defaults:
     shell: bash
 
 jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - run: uv run --locked --only-group dev ruff format --check
+      - run: uv run --locked --only-group dev ruff check --ignore-noqa
+      - name: Audit the workflows
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: uv run --locked --only-group dev zizmor .
+
   rust:
     name: Rust checks
     runs-on: ubuntu-24.04
@@ -24,9 +39,14 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --locked --all-targets -- -D warnings
       - run: cargo test --locked
+      - name: Check the minimum supported Rust version
+        run: |
+          msrv=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].rust_version')
+          rustup toolchain install "$msrv" --profile minimal
+          cargo "+$msrv" check --locked --all-targets
 
   python:
-    name: Python ${{ matrix.python }} tests
+    name: Python ${{ matrix.python }} checks
     runs-on: ubuntu-24.04
     strategy:
       matrix:
@@ -38,11 +58,13 @@ jobs:
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           python-version: ${{ matrix.python }}
-      - run: uv run --locked pytest
+      - run: uv run --locked basedpyright
+      - run: uv run --locked coverage run -m pytest
+      - run: uv run --locked coverage report
 
   wheel:
     name: Wheel (${{ matrix.runner }})
-    needs: [rust, python]
+    needs: [lint, rust, python]
     runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
@@ -78,7 +100,7 @@ jobs:
 
   sdist:
     name: Source distribution
-    needs: [rust, python]
+    needs: [lint, rust, python]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

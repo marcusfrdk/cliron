@@ -1,0 +1,48 @@
+name: Pull request
+
+on:
+  pull_request:
+    types:
+      - opened
+      - edited
+      - reopened
+      - synchronize
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  conventions:
+    name: Pull request conventions
+    runs-on: ubuntu-24.04
+    env:
+      TITLE: ${{ github.event.pull_request.title }}
+    steps:
+      - name: Check the title
+        run: |
+          conventional='^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)!?: [^ ]'
+          if [[ ! $TITLE =~ $conventional ]]; then
+            echo "::error::The title must follow Conventional Commits without a scope, for example 'feat: Added command groups'"
+            exit 1
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Check the changelog
+        run: |
+          user_facing='^(feat|fix|perf)!?: |^[a-z]+!: '
+          if [[ ! $TITLE =~ $user_facing ]]; then
+            exit 0
+          fi
+          unreleased() {
+            awk '$0 == "## Unreleased" { found = 1; next } found && /^## / { exit } found { print }'
+          }
+          if [[ "$(git show HEAD^1:CHANGELOG.md | unreleased)" == "$(unreleased < CHANGELOG.md)" ]]; then
+            echo "::error::Add an entry under ## Unreleased in CHANGELOG.md"
+            exit 1
+          fi

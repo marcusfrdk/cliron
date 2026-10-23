@@ -1,23 +1,54 @@
 # AGENTS.md
 
+## Planning
+
+- Agents propose a plan and wait for the user's approval before changing any file in this repository that git does not ignore.
+- A plan names every dependency, tool, configuration file and workflow it adds or changes. Anything the approved plan did not name needs a new approval.
+
 ## Git
 
 - Agents must never create, change or delete any git repository, local or remote, by any means. This covers git itself, any other tool, script, subprocess or agent, and direct edits inside a `.git` directory.
 - Repository state includes history, the index, refs, branches, tags, the stash, configuration, hooks and remotes, as well as working tree files whenever git is what changes them.
-- Agents may only run git in ways that leave all of that unchanged. If an agent is not certain an action changes nothing, it must not take it.
+- Agents may only run git in ways that leave all of that unchanged. Refreshing the cached file information in the index does not count as a change. If an agent is not certain an action changes nothing, it must not take it.
+- Agents never change anything on GitHub or PyPI.
 - There are no exceptions.
 - Commit messages follow [Conventional Commits](https://www.conventionalcommits.org) on a single line, without a scope. For example, `docs: Added a README and LICENSE file`, not `docs(readme): Added a README`.
+- When asked, agents may draft a commit message or pull request title in this format.
 - Development happens on feature branches that are squash-merged into `main` through pull requests. Pull request titles follow the same format as commit messages.
+
+## Project
+
+- The public API is the names in `cliron.__all__`. Users never import `cliron._core`.
+- Anything users call, subclass, decorate or extend is written in Python. Rust implements the internals that Python calls.
+- `cliron/_core.pyi` declares every item `cliron._core` exposes, with matching signatures.
+- Python code runs on Python 3.11: no syntax or standard library APIs newer than that.
+- `[project] dependencies` in `pyproject.toml` stays empty.
+- Lock files change only through the tools that own them.
+
+## Testing
+
+- New behavior comes with tests. A bug fix comes with a test that fails without it.
+- Python tests in `tests/` exercise the public `cliron` API. Only tests of the extension module itself import `cliron._core`.
+- Rust logic that does not touch Python is unit-tested in a `#[cfg(test)] mod tests` in the same file.
+- Tests never use the network and write files only inside `tmp_path`.
+
+## Definition of done
+
+- `just check` passes.
+- An agent's final message lists the changed files and anything left unverified.
 
 ## Changelog
 
 - Every change that affects users adds an entry under `## Unreleased` in `CHANGELOG.md`.
+- A change affects users when it changes the public API, behavior, performance, output, errors, supported Python or Rust versions, platforms or wheels. Tests, CI, refactors and development tooling do not.
 - Entries are grouped under these headings, in this order, leaving out empty ones: `### Added`, `### Changed`, `### Deprecated`, `### Removed`, `### Fixed`, `### Security`.
+- Each entry is one sentence written for users, ending with a period.
 - A release renames `## Unreleased` to `## vX.Y.Z` and adds a new, empty `## Unreleased` above it. Version headings carry no date.
+- Released sections are never edited.
 
 ## Comments and docstrings
 
-- These rules apply to code everywhere, including code blocks in Markdown and other documentation.
+- These rules apply to code everywhere, including TOML, YAML, the justfile and code blocks in Markdown and other documentation.
 - Code must be self-documenting. If code cannot be understood without a comment, it is bad code: refactor it instead of commenting it.
 - Docstrings are the only allowed form of documentation in code. They use reStructuredText field lists, and a multiline docstring never starts on the same line as its opening quotes:
 
@@ -32,8 +63,11 @@
       """
   ```
 
-- PyO3 turns the `///` doc comments on Rust items exposed to Python into their Python docstrings, so those follow the same style. Doc comments on internal Rust items use standard rustdoc Markdown.
-- Apart from the version comments on pinned GitHub Actions, the only allowed comment documents hidden behavior that our code cannot explain, such as why a workaround for a bug in a dependency exists.
+- Every public module, class, function and method in `cliron`, and every Rust item exposed to Python, has a docstring. Types belong in annotations, never in docstring fields.
+- `///` docs on Rust items exposed to Python follow the docstring rules above, with the summary on the first `///` line. Doc comments on internal Rust items use standard rustdoc Markdown.
+- Justfile recipes are described with the `[doc]` attribute.
+- Apart from the version comments on pinned GitHub Actions, the only allowed comment documents hidden behavior that our code cannot explain, such as why a workaround for a bug in a dependency exists. Such a comment links the upstream issue.
+- Lint and type-check suppressions go in `pyproject.toml` or the `[lints]` tables of `Cargo.toml`, never in comments or attributes.
 - Never explain how third-party tools or libraries behave, in code or in documentation. That is their documentation's job, and our copy drifts when they change.
 
 ## GitHub Actions

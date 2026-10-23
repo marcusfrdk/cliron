@@ -1,4 +1,4 @@
-"""Cliron: an AI-native, lightweight, customizable and dependency-free Python CLI framework."""
+"""An AI-native, lightweight, customizable and dependency-free Python CLI framework."""
 
 from cliron._core import __version__
 

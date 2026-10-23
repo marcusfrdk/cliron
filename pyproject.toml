@@ -32,7 +32,14 @@ Issues = "https://github.com/marcusfrdk/cliron/issues"
 Changelog = "https://github.com/marcusfrdk/cliron/blob/main/CHANGELOG.md"
 
 [dependency-groups]
-dev = ["maturin>=1.15,<2.0", "pytest>=8"]
+dev = [
+    "basedpyright>=1.40",
+    "coverage>=7.17",
+    "maturin>=1.15,<2.0",
+    "pytest>=9",
+    "ruff>=0.17",
+    "zizmor>=1.31",
+]
 
 [tool.maturin]
 module-name = "cliron._core"
@@ -47,5 +54,24 @@ cache-keys = [
     { file = "src/**/*.rs" },
 ]
 
-[tool.pytest.ini_options]
+[tool.pytest]
+addopts = ["--import-mode=importlib"]
+filterwarnings = ["error"]
+strict = true
 testpaths = ["tests"]
+
+[tool.coverage.run]
+branch = true
+source = ["cliron"]
+
+[tool.coverage.report]
+fail_under = 100
+show_missing = true
+skip_covered = true
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = ["COM812", "CPY001", "D203", "D212"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["D1", "INP001", "S101"]

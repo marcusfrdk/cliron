@@ -1,0 +1,28 @@
+name: Bug report
+description: Report a bug in cliron.
+body:
+  - type: input
+    id: version
+    attributes:
+      label: cliron version
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Python version and operating system
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      render: python
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true

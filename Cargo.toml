@@ -11,10 +11,13 @@ publish = false
 
 [lib]
 name = "_core"
-crate-type = ["cdylib", "rlib"]
+crate-type = ["cdylib"]
 
 [dependencies]
 pyo3 = { version = "0.30.1", features = ["abi3-py311"] }
+
+[lints.rust]
+unsafe_code = "forbid"
 
 [profile.release]
 lto = true

@@ -3,7 +3,8 @@ name: CI
 on:
   push:
     branches:
-      - "**"
+      - main
+  pull_request:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -14,4 +15,13 @@ permissions:
 
 jobs:
   build:
-    uses: ./.github/workflows/build.yml
+    uses: $/.github/workflows/build.yml
+
+  passed:
+    name: Checks passed
+    if: always()
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - if: needs.build.result != 'success'
+        run: exit 1
