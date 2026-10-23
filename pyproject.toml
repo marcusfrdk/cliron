@@ -29,6 +29,7 @@ dynamic = ["version"]
 [project.urls]
 Repository = "https://github.com/marcusfrdk/cliron"
 Issues = "https://github.com/marcusfrdk/cliron/issues"
+Changelog = "https://github.com/marcusfrdk/cliron/blob/main/CHANGELOG.md"
 
 [dependency-groups]
 dev = ["maturin>=1.15,<2.0", "pytest>=8"]
