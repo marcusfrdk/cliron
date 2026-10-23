@@ -1,16 +1,17 @@
 [build-system]
-requires = ["maturin>=1.15,<2.0"]
-build-backend = "maturin"
+requires = ["uv_build>=0.13.5,<0.14"]
+build-backend = "uv_build"
 
 [project]
 name = "cliron"
-description = "Everything you need to build your own CLI, for humans and AI agents alike."
+version = "0.1.0"
+description = "Everything you need to build your own CLI."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.11"
 dependencies = []
-keywords = ["cli", "command-line", "framework", "agents", "ai", "rust"]
+keywords = ["cli", "command-line", "framework"]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
     "Environment :: Console",
@@ -19,12 +20,10 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: Implementation :: CPython",
-    "Programming Language :: Rust",
     "Topic :: Software Development :: Libraries :: Application Frameworks",
     "Topic :: Software Development :: User Interfaces",
     "Typing :: Typed",
 ]
-dynamic = ["version"]
 
 [project.urls]
 Repository = "https://github.com/marcusfrdk/cliron"
@@ -35,24 +34,16 @@ Changelog = "https://github.com/marcusfrdk/cliron/blob/main/CHANGELOG.md"
 dev = [
     "basedpyright>=1.40",
     "coverage>=7.17",
-    "maturin>=1.15,<2.0",
     "pytest>=9",
     "ruff>=0.17",
     "zizmor>=1.31",
 ]
 
-[tool.maturin]
-module-name = "cliron._core"
-exclude = ["**/__pycache__", "**/*.pyc", "**/*.pyo"]
-
 [tool.uv]
 required-version = ">=0.11"
-cache-keys = [
-    { file = "pyproject.toml" },
-    { file = "Cargo.toml" },
-    { file = "Cargo.lock" },
-    { file = "src/**/*.rs" },
-]
+
+[tool.uv.build-backend]
+module-root = ""
 
 [tool.pytest]
 addopts = ["--import-mode=importlib"]
@@ -74,4 +65,5 @@ select = ["ALL"]
 ignore = ["COM812", "CPY001", "D203", "D212"]
 
 [tool.ruff.lint.per-file-ignores]
+"cliron/__init__.py" = ["PLC0415"]
 "tests/**" = ["D1", "INP001", "S101"]

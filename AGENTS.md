@@ -2,12 +2,11 @@
 
 ## Vision
 
-Every change moves cliron toward these four goals. Ask the user before making a change that weakens one of them, or when two of them conflict.
+Every change moves cliron toward these three goals. Ask the user before making a change that weakens one of them, or when two of them conflict.
 
-- **AI-native.** Agents are first-class users of every CLI built with cliron. An agent can discover the commands available to it, their arguments and their output in a machine-readable form, and run them without any human interaction. A command or group restricted to agents is hidden from users; one restricted to users is unavailable to agents.
 - **Easy to use.** A working CLI takes as little code as possible, and the obvious way to write it is the right way. Defaults cover the common case, and every error says what went wrong and how to fix it.
 - **Customizable.** Users can extend or replace cliron's behavior from their own code, for example with their own decorators, without forking cliron or touching its internals. cliron's own features are built on the same public extension points users get.
-- **Dependency-free.** Installing cliron installs nothing else: `[project] dependencies` in `pyproject.toml` stays empty. Rust crates are compiled into the wheel, and adding one is still the user's decision.
+- **Dependency-free.** Installing cliron installs nothing else: `[project] dependencies` in `pyproject.toml` stays empty.
 
 ## Planning
 
@@ -36,17 +35,23 @@ Every change moves cliron toward these four goals. Ask the user before making a 
 
 ## Project
 
-- The public API is the names in `cliron.__all__`. Users never import `cliron._core`.
-- Anything users call, subclass, decorate or extend is written in Python. Rust implements the internals that Python calls.
-- `cliron/_core.pyi` declares every item `cliron._core` exposes, with matching signatures.
+- The public API is the names in `cliron.__all__`, loaded lazily from private modules. Users never import a module whose name starts with an underscore.
 - Python code runs on Python 3.11: no syntax or standard library APIs newer than that.
 - Lock files change only through the tools that own them.
+
+## Architecture
+
+- A CLI is a tree of nodes. The root nodes are `group` and `command`: a group contains groups and commands, and is never called their parent.
+- A parent node provides the value of exactly one function parameter. A child node processes the value of the parent above it. A rule relates inputs to each other, and a hook runs around a node.
+- Decorators are read top-down. A parent belongs to the root node above it, a child attaches to the nearest parent above it, and a rule or hook attaches to the nearest node of any kind above it.
+- Types and defaults live only in the function signature, never on parent nodes.
+- Classes use CapWords and functions snake_case, as PEP 8 says. Node classes are no exception.
+- Node names are snake_case. What users type is derived from them: kebab-case for commands and flags, SCREAMING_SNAKE_CASE for environment variables.
 
 ## Testing
 
 - New behavior comes with tests. A bug fix comes with a test that fails without it.
-- Python tests in `tests/` exercise the public `cliron` API. Only tests of the extension module itself import `cliron._core`.
-- Rust logic that does not touch Python is unit-tested in a `#[cfg(test)] mod tests` in the same file.
+- Tests in `tests/` exercise the public `cliron` API.
 - Tests never use the network and write files only inside `tmp_path`.
 
 ## Definition of done
@@ -57,7 +62,7 @@ Every change moves cliron toward these four goals. Ask the user before making a 
 ## Changelog
 
 - Every change that affects users adds an entry under `## Unreleased` in `CHANGELOG.md`.
-- A change affects users when it changes the public API, behavior, performance, output, errors, supported Python or Rust versions, platforms or wheels. Tests, CI, refactors and development tooling do not.
+- A change affects users when it changes the public API, behavior, performance, output, errors, supported Python versions, platforms or wheels. Tests, CI, refactors and development tooling do not.
 - Entries are grouped under these headings, in this order, leaving out empty ones: `### Added`, `### Changed`, `### Deprecated`, `### Removed`, `### Fixed`, `### Security`.
 - Each entry is one sentence written for users, ending with a period.
 - A release renames `## Unreleased` to `## vX.Y.Z` and adds a new, empty `## Unreleased` above it. Version headings carry no date.
@@ -66,6 +71,7 @@ Every change moves cliron toward these four goals. Ask the user before making a 
 ## Comments and docstrings
 
 - These rules apply to code everywhere, including TOML, YAML, the justfile and code blocks in Markdown and other documentation.
+- Code examples use only cliron and the standard library, unless they show an integration that needs more.
 - Code must be self-documenting. If code cannot be understood without a comment, it is bad code: refactor it instead of commenting it.
 - Docstrings are the only allowed form of documentation in code. They use reStructuredText field lists, and a multiline docstring never starts on the same line as its opening quotes:
 
@@ -80,11 +86,10 @@ Every change moves cliron toward these four goals. Ask the user before making a 
       """
   ```
 
-- Every public module, class, function and method in `cliron`, and every Rust item exposed to Python, has a docstring. Types belong in annotations, never in docstring fields.
-- `///` docs on Rust items exposed to Python follow the docstring rules above, with the summary on the first `///` line. Doc comments on internal Rust items use standard rustdoc Markdown.
+- Every public module, class, function and method in `cliron` has a docstring. Types belong in annotations, never in docstring fields.
 - Justfile recipes are described with the `[doc]` attribute.
 - Apart from the version comments on pinned GitHub Actions, the only allowed comment documents hidden behavior that our code cannot explain, such as why a workaround for a bug in a dependency exists. Such a comment links the upstream issue.
-- Lint and type-check suppressions go in `pyproject.toml` or the `[lints]` tables of `Cargo.toml`, never in comments or attributes.
+- Lint and type-check suppressions go in `pyproject.toml`, never in comments.
 - Never explain how third-party tools or libraries behave, in code or in documentation. That is their documentation's job, and our copy drifts when they change.
 
 ## GitHub Actions
