@@ -11,6 +11,17 @@ pip install cliron
 ## Requirements
 
 - **Python**: 3.11 or higher
+- **Rust**: 1.96 or higher
+- **uv**: 0.11 or higher
+
+## Development
+
+```bash
+uv sync
+uv run pytest
+cargo test
+uv run maturin build --release
+```
 
 ## License
 

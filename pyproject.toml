@@ -1,0 +1,50 @@
+[build-system]
+requires = ["maturin>=1.15,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "cliron"
+description = "An AI-native, lightweight, customizable and dependency-free Python CLI framework."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+dependencies = []
+keywords = ["cli", "command-line", "framework", "agents", "ai", "rust"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Rust",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+    "Topic :: Software Development :: User Interfaces",
+    "Typing :: Typed",
+]
+dynamic = ["version"]
+
+[project.urls]
+Repository = "https://github.com/marcusfrdk/cliron"
+Issues = "https://github.com/marcusfrdk/cliron/issues"
+
+[dependency-groups]
+dev = ["maturin>=1.15,<2.0", "pytest>=8"]
+
+[tool.maturin]
+module-name = "cliron._core"
+exclude = ["**/__pycache__", "**/*.pyc", "**/*.pyo"]
+
+[tool.uv]
+required-version = ">=0.11"
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "Cargo.toml" },
+    { file = "Cargo.lock" },
+    { file = "src/**/*.rs" },
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
