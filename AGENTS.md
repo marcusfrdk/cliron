@@ -1,9 +1,27 @@
 # AGENTS.md
 
+## Vision
+
+Every change moves cliron toward these four goals. Ask the user before making a change that weakens one of them, or when two of them conflict.
+
+- **AI-native.** Agents are first-class users of every CLI built with cliron. An agent can discover the commands available to it, their arguments and their output in a machine-readable form, and run them without any human interaction. A command or group restricted to agents is hidden from users; one restricted to users is unavailable to agents.
+- **Easy to use.** A working CLI takes as little code as possible, and the obvious way to write it is the right way. Defaults cover the common case, and every error says what went wrong and how to fix it.
+- **Customizable.** Users can extend or replace cliron's behavior from their own code, for example with their own decorators, without forking cliron or touching its internals. cliron's own features are built on the same public extension points users get.
+- **Dependency-free.** Installing cliron installs nothing else: `[project] dependencies` in `pyproject.toml` stays empty. Rust crates are compiled into the wheel, and adding one is still the user's decision.
+
 ## Planning
 
 - Agents propose a plan and wait for the user's approval before changing any file in this repository that git does not ignore.
 - A plan names every dependency, tool, configuration file and workflow it adds or changes. Anything the approved plan did not name needs a new approval.
+
+## Principles
+
+- **YAGNI.** Build and change only what the task needs now. No option, parameter, abstraction or file for a need that has not arrived.
+- **KISS.** Write the simplest code that works.
+- **DRY.** Never write a second copy of a piece of logic. Code that looks alike but changes for different reasons is not a copy.
+- **Chesterton's fence.** Before removing or changing something that looks pointless, find out why it exists: its tests, its callers, its history. Keep it if the reason holds, and ask if the task wants it changed anyway. Ask too if it is unclear whether the reason holds, or if none is found.
+- **No cargo cult.** Copy a pattern only when its reason holds here.
+- **Ask before deciding what is the user's.** A choice the task or approved plan does not settle is the user's when it changes the architecture, how the program behaves, a design or the user experience, and so is a workaround for a missing piece or a change beyond what was asked. Ask before making one. A technical choice inside those bounds needs no question.
 
 ## Git
 
@@ -14,7 +32,7 @@
 - There are no exceptions.
 - Commit messages follow [Conventional Commits](https://www.conventionalcommits.org) on a single line, without a scope. For example, `docs: Added a README and LICENSE file`, not `docs(readme): Added a README`.
 - When asked, agents may draft a commit message or pull request title in this format.
-- Development happens on feature branches that are squash-merged into `main` through pull requests. Pull request titles follow the same format as commit messages.
+- Development happens on feature branches merged into `main` through pull requests. Pull request titles follow the same format as commit messages.
 
 ## Project
 
@@ -22,7 +40,6 @@
 - Anything users call, subclass, decorate or extend is written in Python. Rust implements the internals that Python calls.
 - `cliron/_core.pyi` declares every item `cliron._core` exposes, with matching signatures.
 - Python code runs on Python 3.11: no syntax or standard library APIs newer than that.
-- `[project] dependencies` in `pyproject.toml` stays empty.
 - Lock files change only through the tools that own them.
 
 ## Testing

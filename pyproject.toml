@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "cliron"
-description = "An AI-native, lightweight, customizable and dependency-free Python CLI framework."
+description = "Everything you need to build your own CLI, for humans and AI agents alike."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]

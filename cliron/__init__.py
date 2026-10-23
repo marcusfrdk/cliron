@@ -1,4 +1,4 @@
-"""An AI-native, lightweight, customizable and dependency-free Python CLI framework."""
+"""Everything you need to build your own CLI, for humans and AI agents alike."""
 
 from cliron._core import __version__
 
