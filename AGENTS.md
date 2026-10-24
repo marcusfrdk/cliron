@@ -35,7 +35,8 @@ Every change moves cliron toward these three goals. Ask the user before making a
 
 ## Project
 
-- The public API is the names in `cliron.__all__`, loaded lazily from private modules. Users never import a module whose name starts with an underscore.
+- The public API is the names in the `__all__` of `cliron` and of its public subpackages, such as `cliron.testing`. Their code lives in private modules, and `cliron` loads its names lazily. Users never import a module whose name starts with an underscore.
+- Everything used to write a CLI is exported from `cliron`. A public subpackage exists only for a different audience or moment, such as tests, never to split the API along internal lines.
 - Python code runs on Python 3.11: no syntax or standard library APIs newer than that.
 - Lock files change only through the tools that own them.
 

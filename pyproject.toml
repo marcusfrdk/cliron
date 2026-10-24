@@ -65,5 +65,5 @@ select = ["ALL"]
 ignore = ["COM812", "CPY001", "D203", "D212"]
 
 [tool.ruff.lint.per-file-ignores]
-"cliron/__init__.py" = ["PLC0415"]
-"tests/**" = ["D1", "INP001", "S101"]
+"cliron/**" = ["PLC0415"]
+"tests/**" = ["D1", "INP001", "PLR2004", "S101", "S603"]
