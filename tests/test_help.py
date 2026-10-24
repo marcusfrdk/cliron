@@ -10,7 +10,7 @@ from typing import Literal
 
 import pytest
 
-from cliron import argument, command, flag, group, option
+from cliron import argument, command, env, flag, group, option
 from cliron.testing import run, validate
 
 Check = Callable[..., object]
@@ -2453,7 +2453,8 @@ def test_summary_ends_at_a_line_of_only_spaces() -> None:
 
 
 @pytest.mark.parametrize(
-    ("decorator", "name"), [(argument, "argument"), (option, "option"), (flag, "flag")]
+    ("decorator", "name"),
+    [(argument, "argument"), (option, "option"), (flag, "flag"), (env, "env")],
 )
 def test_help_that_isnt_a_string_is_rejected(
     decorator: Callable[..., object], name: str
@@ -2687,3 +2688,127 @@ def test_help_wraps_at_exactly_78_columns(summary: str, shown: str) -> None:
 
     assert len(summary) in {78, 79}
     assert result.stdout.split("\n\n")[1] == shown
+
+
+DEFAULT_DB = Path("notes.db")
+
+
+@group("notes")
+@env("notes_db", help="Where notes are stored.")
+@flag("quiet", "-q", help="Print nothing but results.")
+def stored_notes(notes_db: Path = DEFAULT_DB, *, quiet: bool = False) -> None:
+    """Keep notes in a local database."""
+    _ = (notes_db, quiet)
+
+
+@command("add")
+@argument("text", help="The note.")
+@option("tag", "-t", help="A tag to file it under.")
+@env("editor", variable="VISUAL", help="Editor for long notes.")
+@env("max_length", help="Longest note to accept.")
+@env("level", help="How loud.")
+def add_stored_note(
+    text: str,
+    editor: str,
+    tag: str | None = None,
+    max_length: int = 280,
+    level: Literal["low", "high"] = "low",
+) -> None:
+    """Add a note."""
+    _ = (text, editor, tag, max_length, level)
+
+
+stored_notes.add(add_stored_note)
+
+
+def test_group_help_lists_its_variables_before_its_commands() -> None:
+    result = run(stored_notes, ["--help"])
+
+    assert result.stdout == (
+        "Usage: notes [OPTIONS] COMMAND\n"
+        "\n"
+        "Keep notes in a local database.\n"
+        "\n"
+        "Options:\n"
+        "  -q, --quiet  Print nothing but results.\n"
+        "  -h, --help   Show this help and exit.\n"
+        "\n"
+        "Environment:\n"
+        "  NOTES_DB     Where notes are stored. (default: notes.db)\n"
+        "\n"
+        "Commands:\n"
+        "  add          Add a note.\n"
+    )
+
+
+def test_command_help_lists_the_variables_of_every_node_on_its_path() -> None:
+    result = run(stored_notes, ["add", "--help"])
+
+    assert result.stdout == (
+        "Usage: notes [OPTIONS] add [OPTIONS] TEXT\n"
+        "\n"
+        "Add a note.\n"
+        "\n"
+        "Arguments:\n"
+        "  TEXT              The note.\n"
+        "\n"
+        "Options:\n"
+        "  -t, --tag TEXT    A tag to file it under.\n"
+        "  -h, --help        Show this help and exit.\n"
+        "\n"
+        "Options for notes:\n"
+        "  -q, --quiet       Print nothing but results.\n"
+        "\n"
+        "Environment:\n"
+        "  NOTES_DB          Where notes are stored. (default: notes.db)\n"
+        "  VISUAL            Editor for long notes. (required)\n"
+        "  MAX_LENGTH        Longest note to accept. (default: 280)\n"
+        "  LEVEL [low|high]  How loud. (default: low)\n"
+    )
+
+
+def test_long_variable_moves_its_help_to_the_next_line() -> None:
+    @command("sync")
+    @env("token", variable="NOTES_SYNC_SERVICE_ACCESS_TOKEN", help="The token.")
+    def sync(token: str) -> None:
+        _ = token
+
+    result = run(sync, ["--help"])
+
+    assert result.stdout == (
+        "Usage: sync [OPTIONS]\n"
+        "\n"
+        "Options:\n"
+        "  -h, --help            Show this help and exit.\n"
+        "\n"
+        "Environment:\n"
+        "  NOTES_SYNC_SERVICE_ACCESS_TOKEN\n"
+        "                        The token. (required)\n"
+    )
+
+
+def test_group_with_only_variables_shows_no_options_before_its_command() -> None:
+    @group("box")
+    @env("box_db")
+    def box(box_db: str = "") -> None:
+        _ = box_db
+
+    @command("put")
+    def put() -> None:
+        """Put something in the box."""
+
+    box.add(put)
+
+    result = run(box, ["put", "--help"])
+
+    assert result.stdout == (
+        "Usage: box put [OPTIONS]\n"
+        "\n"
+        "Put something in the box.\n"
+        "\n"
+        "Options:\n"
+        "  -h, --help  Show this help and exit.\n"
+        "\n"
+        "Environment:\n"
+        "  BOX_DB      (default: '')\n"
+    )

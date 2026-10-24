@@ -5,6 +5,7 @@ _SNAKE_CASE = re.compile(r"[a-z][a-z0-9]*(?:_[a-z0-9]+)*")
 _WORD = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z0-9]+")
 _SHORT_FLAG = re.compile(r"-[A-Za-z]")
 _LONG_FLAG = re.compile(r"--[a-z][a-z0-9]*(?:-[a-z0-9]+)*")
+_VARIABLE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
 def check_name(name: object, decorator: str) -> str:
@@ -69,6 +70,22 @@ def check_flag(flag: object, context: str) -> str:
     message = (
         f"{flag!r} isn't a flag. Use a dash and one letter, such as '-h', "
         "or two dashes and a kebab-case name, such as '--help'."
+    )
+    raise ValueError(message)
+
+
+def check_variable(variable: object) -> str | None:
+    if variable is not None and not isinstance(variable, str):
+        message = (
+            "@env takes variable as a string, such as "
+            f'variable="GITHUB_TOKEN", not {variable!r}.'
+        )
+        raise TypeError(message)
+    if variable is None or _VARIABLE.fullmatch(variable):
+        return variable
+    message = (
+        f"{variable!r} isn't an environment variable name. Use letters, digits "
+        "and underscores, not starting with a digit, such as 'GITHUB_TOKEN'."
     )
     raise ValueError(message)
 

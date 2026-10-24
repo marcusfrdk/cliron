@@ -15,7 +15,16 @@ from cliron._builtin_options import (
 from cliron._conversion import SUPPORTED, converter_for, describe
 from cliron._help import render_help, terminal_width, usage_hint
 from cliron._names import check_name, is_parameter_name, parameter_suggestion, token
-from cliron._parents import Argument, Flag, Parent, call, display, flags, parents_of
+from cliron._parents import (
+    Argument,
+    Env,
+    Flag,
+    Parent,
+    call,
+    display,
+    flags,
+    parents_of,
+)
 from cliron._parsing import Definition, Input, Node, Request, parse
 from cliron._signals import finish
 
@@ -60,7 +69,8 @@ class Root:
         :param version_option: The version, or ``None`` to inherit it.
         :raises TypeError: If ``function`` isn't a function, or a group has an
             argument.
-        :raises ValueError: If two parents share a name or a flag.
+        :raises ValueError: If two parents share a name, a flag or an
+            environment variable.
         """
         if not isinstance(function, FunctionType):
             message = f"@{self.kind} must decorate a function."
@@ -184,10 +194,11 @@ def command(
     """
     Turn a function into a command.
 
-    The ``argument``, ``option`` and ``flag`` decorators below this one fill
-    the function's parameters from the command line, converted to the types of
-    their annotations. What the function returns is printed: nothing for
-    ``None``, a ``str`` as it is, and anything else as JSON.
+    The ``argument``, ``option``, ``flag`` and ``env`` decorators below this
+    one fill the function's parameters from the command line and the
+    environment, converted to the types of their annotations. What the function
+    returns is printed: nothing for ``None``, a ``str`` as it is, and anything
+    else as JSON.
 
     :param name: The command's name, in snake_case.
     :param help_flags: The flags that show help. ``True`` takes the enclosing
@@ -221,8 +232,8 @@ def group(
     Turn a function into a group of commands.
 
     Put commands and groups in it with its ``add`` method. The group's
-    function runs with its own options and flags before the command that was
-    asked for, and must return ``None``.
+    function runs with its own options, flags and environment variables before
+    the command that was asked for, and must return ``None``.
 
     :param name: The group's name, in snake_case.
     :param help_flags: The flags that show help, for the group and everything
@@ -443,13 +454,28 @@ def _input(
     if isinstance(parent, Flag):
         return _flag(parent, annotation, default)
     if annotation is bool:
-        message = f"parameter '{parent.name}' is a bool. Use @flag(\"{parent.name}\")."
+        if isinstance(parent, Env):
+            message = (
+                f"parameter '{parent.name}' is a bool, which only @flag can fill. "
+                "For an environment variable, use an int, such as "
+                f"{parent.name}: int = 0, which {parent.variable}=1 sets to 1."
+            )
+        else:
+            message = (
+                f"parameter '{parent.name}' is a bool. Use @flag(\"{parent.name}\")."
+            )
         raise TypeError(message)
     converter = converter_for(annotation)
     if converter is None:
         message = (
             f"parameter '{parent.name}' has the type {describe(annotation)}, "
             f"which cliron can't convert. Use {SUPPORTED}."
+        )
+        raise TypeError(message)
+    if isinstance(parent, Env) and converter.collect is not None:
+        message = (
+            f"parameter '{parent.name}' has the type {describe(annotation)}, "
+            f"but {call(parent)} reads one value. Use a type without list or tuple."
         )
         raise TypeError(message)
     required = default is inspect.Parameter.empty

@@ -6,7 +6,7 @@ from typing import ClassVar, Protocol
 from cliron._builtin_options import DEFAULT_BUILTINS, Builtins
 from cliron._conversion import NUMBER, Converter
 from cliron._names import token
-from cliron._parents import Argument, Parent, display, flags
+from cliron._parents import Argument, Env, Parent, display, flags
 
 
 @dataclass(frozen=True)
@@ -123,10 +123,14 @@ class _Segment:
         if converter is None:
             count = self.occurrences.get(target.name, 0)
             return (count if target.counted else count > 0), []
+        if isinstance(target.parent, Env):
+            text = target.parent.read()
+            if text is not None:
+                self.add(target, text)
         raw = self.raw.get(target.name, [])
         if not raw:
             if target.required and target.name not in self.input_errors:
-                return None, [LookupError(f"{target.display} is required.")]
+                return None, [LookupError(_missing(target))]
             return target.default, []
         values: list[object] = []
         problems: list[Exception] = []
@@ -353,6 +357,12 @@ class _Reader:
 
 def _is_option(word: str) -> bool:
     return word.startswith("-") and word != "-" and not NUMBER.fullmatch(word)
+
+
+def _missing(target: Input) -> str:
+    if isinstance(target.parent, Env):
+        return f"{target.display} isn't set."
+    return f"{target.display} is required."
 
 
 def _needs_value(target: Input) -> LookupError:

@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Annotated, Literal, cast
 
 import pytest
 
-from cliron import argument, command, flag, group, option
+from cliron import argument, command, env, flag, group, option
 from cliron.testing import run, validate
 
 if TYPE_CHECKING:
@@ -68,7 +68,7 @@ def defined_at(kind: str, name: str, line: int) -> str:
 
 
 @BAD_NAMES
-@pytest.mark.parametrize("decorator", [argument, option, flag, command, group])
+@pytest.mark.parametrize("decorator", [argument, option, flag, env, command, group])
 def test_decorator_rejects_name_that_isnt_snake_case(
     decorator: Callable[[str], Decorated], name: str, message: str
 ) -> None:
@@ -93,7 +93,8 @@ def test_short_flag_must_be_a_dash_and_one_letter(
 
 
 @pytest.mark.parametrize(
-    ("parent", "name"), [(argument, "argument"), (option, "option"), (flag, "flag")]
+    ("parent", "name"),
+    [(argument, "argument"), (option, "option"), (flag, "flag"), (env, "env")],
 )
 @pytest.mark.parametrize("root", [command, group])
 def test_parent_decorator_above_root_decorator_is_rejected(
@@ -142,6 +143,17 @@ def test_two_parents_with_the_same_name_are_rejected() -> None:
         _ = command("greet")(greet)
 
 
+def test_an_option_and_an_env_with_the_same_name_are_rejected() -> None:
+    @option("tag")
+    @env("tag")
+    def add(tag: str = "") -> str:
+        return tag
+
+    message = 'parameter \'tag\' has two parents, @option("tag") and @env("tag").'
+    with pytest.raises(ValueError, match=exactly(message)):
+        _ = command("add")(add)
+
+
 def test_two_parents_with_the_same_short_flag_are_rejected() -> None:
     @option("count", "-c")
     @flag("color", "-c")
@@ -184,7 +196,8 @@ def test_parameter_without_parent_is_rejected(check: Check) -> None:
 
 @ENTRY_POINTS
 @pytest.mark.parametrize(
-    ("parent", "name"), [(argument, "argument"), (option, "option"), (flag, "flag")]
+    ("parent", "name"),
+    [(argument, "argument"), (option, "option"), (flag, "flag"), (env, "env")],
 )
 def test_parent_without_parameter_is_rejected(
     check: Check, parent: Callable[[str], Decorated], name: str
@@ -544,6 +557,7 @@ def test_validate_accepts_a_valid_cli_twice() -> None:
         (argument, "argument"),
         (option, "option"),
         (flag, "flag"),
+        (env, "env"),
         (command, "command"),
         (group, "group"),
     ],
@@ -619,7 +633,7 @@ def test_group_cant_be_added_to_a_group_inside_it() -> None:
         inner.add(outer)
 
 
-@pytest.mark.parametrize("decorator", [argument, option, flag])
+@pytest.mark.parametrize("decorator", [argument, option, flag, env])
 def test_parent_name_cant_be_a_python_keyword(
     decorator: Callable[[str], Decorated],
 ) -> None:

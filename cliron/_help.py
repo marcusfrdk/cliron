@@ -8,7 +8,7 @@ from typing import TextIO, cast
 from cliron._builtin_options import Builtins
 from cliron._conversion import typed_member
 from cliron._names import placeholder
-from cliron._parents import Argument
+from cliron._parents import Env, Flag, Option
 from cliron._parsing import Input, Node, node_path
 
 _MAX_WIDTH = 80
@@ -50,7 +50,13 @@ def render_help(nodes: Sequence[Node], builtins: Builtins, width: int) -> str:
     for index, group in enumerate(nodes[:-1]):
         rows = [_option_row(target) for target in _own_options(group)]
         tables.append((f"Options for {node_path(nodes[: index + 1])}", rows))
-    tables.append(("Commands", commands))
+    environment = [
+        _environment_row(target, target.parent)
+        for each in nodes
+        for target in each.definition().inputs
+        if isinstance(target.parent, Env)
+    ]
+    tables.extend([("Environment", environment), ("Commands", commands)])
     position = _help_position([row for _, rows in tables for row in rows], width)
     for title, rows in tables:
         if rows:
@@ -100,7 +106,7 @@ def _own_options(node: Node) -> list[Input]:
     return [
         target
         for target in node.definition().inputs
-        if not isinstance(target.parent, Argument)
+        if isinstance(target.parent, Option | Flag)
     ]
 
 
@@ -115,10 +121,17 @@ def _argument_row(target: Input) -> tuple[str, str]:
     return name, _describe(target, show_required=False)
 
 
+def _environment_row(target: Input, parent: Env) -> tuple[str, str]:
+    name = parent.variable
+    if target.converter is not None and target.converter.choices:
+        name += f" {target.converter.metavar}"
+    return name, _describe(target, show_required=True)
+
+
 def _option_row(target: Input) -> tuple[str, str]:
     parent = target.parent
     names = [target.display]
-    if not isinstance(parent, Argument) and parent.short is not None:
+    if isinstance(parent, Option | Flag) and parent.short is not None:
         names.insert(0, parent.short)
     invocation = ", ".join(names)
     if target.converter is not None:

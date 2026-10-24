@@ -12,6 +12,8 @@
 - The `help_flags` parameter of `command` and `group` renames or turns off the help flags, and `version` adds a `--version` flag that prints it.
 - Invalid input ends with a line that says how to get help, and a group run with nothing after it shows its help.
 - Ctrl+C ends a CLI without a traceback, SIGTERM runs cleanup before exiting with 143 unless the program already handles or ignores it, and on Linux and macOS output into a pipe that closes early ends quietly.
+- The `env` decorator fills a parameter from an environment variable, and help lists the variables a command reads under Environment.
+- `cliron.testing.run` takes `env`, the environment variables to run the CLI with in place of the test's own.
 
 ### Changed
 

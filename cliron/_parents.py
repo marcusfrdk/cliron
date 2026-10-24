@@ -1,9 +1,16 @@
+import os
 from collections.abc import Callable
 from dataclasses import dataclass
 from types import FunctionType
 from typing import ClassVar, TypeVar, cast
 
-from cliron._names import check_parameter_name, check_short, long_flag, placeholder
+from cliron._names import (
+    check_parameter_name,
+    check_short,
+    check_variable,
+    long_flag,
+    placeholder,
+)
 
 F = TypeVar("F", bound=Callable[..., object])
 
@@ -33,17 +40,30 @@ class Flag:
     help: str | None = None
 
 
-Parent = Argument | Option | Flag
+@dataclass(frozen=True)
+class Env:
+    decorator: ClassVar[str] = "env"
+    name: str
+    variable: str
+    help: str | None = None
+
+    def read(self) -> str | None:
+        return os.environ.get(self.variable) or None
+
+
+Parent = Argument | Option | Flag | Env
 
 
 def display(parent: Parent) -> str:
     if isinstance(parent, Argument):
         return placeholder(parent.name)
+    if isinstance(parent, Env):
+        return f"${parent.variable}"
     return long_flag(parent.name)
 
 
 def flags(parent: Parent) -> tuple[str, ...]:
-    if isinstance(parent, Argument):
+    if not isinstance(parent, Option | Flag):
         return ()
     if parent.short is None:
         return (long_flag(parent.name),)
@@ -132,6 +152,34 @@ def flag(
             check_parameter_name(name, "flag"),
             check_short(short),
             _check_help(help, "flag"),
+        )
+    )
+
+
+def env(
+    name: str, *, variable: str | None = None, help: str | None = None
+) -> Callable[[F], F]:
+    """
+    Fill a parameter from an environment variable.
+
+    The variable is the name in capitals: ``notes_db`` reads ``NOTES_DB``. A
+    variable that is set to an empty value counts as not set.
+
+    :param name: The parameter's name, in snake_case.
+    :param variable: The variable to read instead, such as ``"GITHUB_TOKEN"``.
+    :param help: What the variable is for, shown under Environment in the help.
+    :returns: A decorator for the function of a command or group.
+    :raises TypeError: If ``name``, ``variable`` or ``help`` isn't a string.
+    :raises ValueError: If ``name`` isn't snake_case or is a Python keyword, or
+        ``variable`` isn't letters, digits and underscores that don't start
+        with a digit.
+    """
+    checked = check_parameter_name(name, "env")
+    return _attach(
+        Env(
+            checked,
+            check_variable(variable) or placeholder(checked),
+            _check_help(help, "env"),
         )
     )
 
