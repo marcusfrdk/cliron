@@ -17,6 +17,7 @@ from cliron._help import render_help, terminal_width, usage_hint
 from cliron._names import check_name, is_parameter_name, parameter_suggestion, token
 from cliron._parents import Argument, Flag, Parent, call, display, flags, parents_of
 from cliron._parsing import Definition, Input, Node, Request, parse
+from cliron._signals import finish
 
 _UNSUPPORTED_KINDS = {
     inspect.Parameter.POSITIONAL_ONLY: (
@@ -77,9 +78,17 @@ class Root:
         """
         Run the command line in ``sys.argv`` and exit.
 
-        :raises SystemExit: Always: with 0 on success and 2 for invalid input.
+        Ctrl+C ends the program without a traceback. SIGTERM, and Ctrl+Break on
+        Windows, raise ``SystemExit(143)`` so that cleanup runs, unless the
+        program already handles or ignores them. On Linux and macOS, output that
+        a closed pipe can no longer take ends the program quietly with 1.
+
+        :raises SystemExit: With 0 on success, 2 for invalid input, 143 for
+            SIGTERM and 1 for a closed pipe.
+        :raises KeyboardInterrupt: For Ctrl+C, which Python turns into its usual
+            exit status, without printing a traceback.
         """
-        raise SystemExit(main(self, sys.argv[1:]))
+        finish(lambda: main(self, sys.argv[1:]))
 
     def definition(self) -> Definition:
         """

@@ -11,6 +11,7 @@
 - Every command and group shows its help for `-h` and `--help`, built from its docstring and the `help` text of its arguments, options and flags, and listing the options of the groups around it.
 - The `help_flags` parameter of `command` and `group` renames or turns off the help flags, and `version` adds a `--version` flag that prints it.
 - Invalid input ends with a line that says how to get help, and a group run with nothing after it shows its help.
+- Ctrl+C ends a CLI without a traceback, SIGTERM runs cleanup before exiting with 143 unless the program already handles or ignores it, and on Linux and macOS output into a pipe that closes early ends quietly.
 
 ### Changed
 
