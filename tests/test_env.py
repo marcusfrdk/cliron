@@ -210,7 +210,7 @@ def test_env_rejects_a_list(check: Check) -> None:
         _ = paths
 
     message = (
-        "parameter 'paths' has the type list[pathlib.Path], but @env(\"paths\") "
+        f"parameter 'paths' has the type {list[Path]!r}, but @env(\"paths\") "
         "reads one value. Use a type without list or tuple."
     )
     with pytest.raises(TypeError, match=exactly(message)):
