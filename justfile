@@ -17,13 +17,23 @@ test:
     uv run --locked coverage run -m pytest
     uv run --locked coverage report
 
+[doc('Type-check and run the tests with coverage on every Python version CI tests')]
+[script('bash', '-euo', 'pipefail')]
+matrix:
+    for python in 3.11 3.12 3.13 3.14 3.15; do
+        echo "Python $python"
+        uv run --locked --isolated --python "$python" basedpyright --pythonversion "$python"
+        uv run --locked --isolated --python "$python" coverage run -m pytest
+        uv run --locked --isolated --python "$python" coverage report
+    done
+
 [doc('Build a wheel and a source distribution into dist')]
 build:
     rm -rf dist
     uv build
 
 [doc('Lint, test, build and test the built distributions')]
-check: lint test build
+check: lint matrix build
     uv run --no-project --isolated --python 3.11 --with pytest --with dist/*.whl pytest
     uv run --no-project --isolated --python 3.15 --with pytest --with dist/*.whl pytest
     uv run --no-project --isolated --python 3.11 --with pytest --with dist/*.tar.gz pytest
