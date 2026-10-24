@@ -127,6 +127,7 @@ def test_command_name_typed_in_snake_case_is_unknown() -> None:
     assert result.stdout == ""
     assert result.stderr == (
         "error: 'create_task' isn't a tasks command. Did you mean 'create-task'?\n"
+        "Run 'tasks --help' for usage.\n"
     )
     assert calls == []
 
@@ -229,6 +230,7 @@ def test_group_option_after_the_command_belongs_to_the_group(
     assert result.stdout == ""
     assert result.stderr == (
         f"error: {written} belongs to 'notes'. Write it right after 'notes'.\n"
+        "Run 'notes add --help' for usage.\n"
     )
     assert calls == []
 
@@ -254,6 +256,7 @@ def test_misplaced_option_takes_a_value_when_its_owner_does() -> None:
     assert result.returncode == 2
     assert result.stderr == (
         "error: --tag belongs to 'notes'. Write it right after 'notes'.\n"
+        "Run 'notes add --help' for usage.\n"
     )
     assert calls == []
 
@@ -279,6 +282,7 @@ def test_misplaced_option_takes_no_value_when_its_owner_is_a_flag() -> None:
     assert result.returncode == 2
     assert result.stderr == (
         "error: --verbose belongs to 'notes'. Write it right after 'notes'.\n"
+        "Run 'notes add --help' for usage.\n"
     )
     assert calls == []
 
@@ -304,6 +308,7 @@ def test_misplaced_option_does_not_stop_the_check() -> None:
     assert result.stderr == (
         "error: -f belongs to 'notes'. Write it right after 'notes'.\n"
         "error: unexpected argument 'extra'.\n"
+        "Run 'notes add --help' for usage.\n"
     )
     assert calls == []
 
@@ -335,6 +340,7 @@ def test_group_option_after_a_sub_subcommand_belongs_to_the_group() -> None:
     assert result.stdout == ""
     assert result.stderr == (
         "error: -f belongs to 'notes'. Write it right after 'notes'.\n"
+        "Run 'notes tags add --help' for usage.\n"
     )
     assert calls == []
 
@@ -370,6 +376,7 @@ def test_command_option_before_the_command_belongs_to_the_command(
     assert result.stdout == ""
     assert result.stderr == (
         f"error: {written} belongs to 'add'. Write it right after 'add'.\n"
+        "Run 'notes add --help' for usage.\n"
     )
     assert calls == []
 
@@ -402,20 +409,25 @@ def test_option_owned_by_two_nodes_on_the_path_names_both() -> None:
     assert result.stderr == (
         "error: -q belongs to 'notes' and 'tags'. "
         "Write it right after the one you mean.\n"
+        "Run 'notes tags add --help' for usage.\n"
     )
     assert calls == []
 
 
 @pytest.mark.parametrize(
-    ("args", "message"),
+    ("args", "message", "path"),
     [
-        (["lst"], "'lst' isn't a notes command. Did you mean 'list'?"),
-        (["xyz"], "'xyz' isn't a notes command."),
-        (["tags", "lst"], "'lst' isn't a notes tags command. Did you mean 'list'?"),
-        (["tags", "xyz"], "'xyz' isn't a notes tags command."),
+        (["lst"], "'lst' isn't a notes command. Did you mean 'list'?", "notes"),
+        (["xyz"], "'xyz' isn't a notes command.", "notes"),
+        (
+            ["tags", "lst"],
+            "'lst' isn't a notes tags command. Did you mean 'list'?",
+            "notes tags",
+        ),
+        (["tags", "xyz"], "'xyz' isn't a notes tags command.", "notes tags"),
     ],
 )
-def test_unknown_command_is_reported(args: list[str], message: str) -> None:
+def test_unknown_command_is_reported(args: list[str], message: str, path: str) -> None:
     calls: list[str] = []
 
     @group("notes")
@@ -450,7 +462,7 @@ def test_unknown_command_is_reported(args: list[str], message: str) -> None:
 
     assert result.returncode == 2
     assert result.stdout == ""
-    assert result.stderr == f"error: {message}\n"
+    assert result.stderr == f"error: {message}\nRun '{path} --help' for usage.\n"
     assert calls == []
 
 
@@ -472,6 +484,7 @@ def test_nothing_is_checked_after_an_unknown_command() -> None:
     assert result.returncode == 2
     assert result.stderr == (
         "error: 'lst' isn't a notes command. Did you mean 'list'?\n"
+        "Run 'notes --help' for usage.\n"
     )
     assert calls == []
 
@@ -496,7 +509,150 @@ def test_group_errors_before_an_unknown_command_are_reported() -> None:
     assert result.stderr == (
         "error: --limit: 'ten' isn't a whole number.\n"
         "error: 'lst' isn't a notes command. Did you mean 'list'?\n"
+        "Run 'notes --help' for usage.\n"
     )
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    ("args", "expected"),
+    [
+        (
+            [],
+            (
+                "Usage: notes [OPTIONS] COMMAND\n"
+                "\n"
+                "Options:\n"
+                "  -q, --quiet\n"
+                "  -h, --help   Show this help and exit.\n"
+                "\n"
+                "Commands:\n"
+                "  tags\n"
+                "  due-soon\n"
+            ),
+        ),
+        (
+            ["tags"],
+            (
+                "Usage: notes [OPTIONS] tags [OPTIONS] COMMAND\n"
+                "\n"
+                "Options:\n"
+                "  -h, --help   Show this help and exit.\n"
+                "\n"
+                "Options for notes:\n"
+                "  -q, --quiet\n"
+                "\n"
+                "Commands:\n"
+                "  add\n"
+            ),
+        ),
+        (
+            ["due-soon"],
+            (
+                "Usage: notes [OPTIONS] due-soon [OPTIONS] COMMAND\n"
+                "\n"
+                "Options:\n"
+                "  -h, --help   Show this help and exit.\n"
+                "\n"
+                "Options for notes:\n"
+                "  -q, --quiet\n"
+                "\n"
+                "Commands:\n"
+                "  list\n"
+            ),
+        ),
+    ],
+)
+def test_group_with_nothing_after_it_shows_its_help_on_stderr(
+    args: list[str], expected: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("COLUMNS", raising=False)
+    calls: list[str] = []
+
+    @group("notes")
+    @flag("quiet", "-q")
+    def notes(*, quiet: bool = False) -> None:
+        calls.append(f"notes {quiet}")
+
+    @group("tags")
+    def tags() -> None:
+        calls.append("tags")
+
+    notes.add(tags)
+
+    @command("add")
+    def add_tag() -> None:
+        calls.append("add tag")
+
+    tags.add(add_tag)
+
+    @group("due_soon")
+    def due_soon() -> None:
+        calls.append("due soon")
+
+    notes.add(due_soon)
+
+    @command("list")
+    def list_due() -> None:
+        calls.append("list due")
+
+    due_soon.add(list_due)
+
+    result = run(notes, args)
+
+    assert result.returncode == 2
+    assert result.stdout == ""
+    assert result.stderr == expected
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    ("args", "message", "path"),
+    [
+        (["-q"], "'notes' needs a command.", "notes"),
+        (["tags", "-a"], "'notes tags' needs a command.", "notes tags"),
+        (["due-soon", "-o"], "'notes due-soon' needs a command.", "notes due-soon"),
+    ],
+)
+def test_missing_command_is_reported(args: list[str], message: str, path: str) -> None:
+    calls: list[str] = []
+
+    @group("notes")
+    @flag("quiet", "-q")
+    def notes(*, quiet: bool = False) -> None:
+        calls.append(f"notes {quiet}")
+
+    @group("tags")
+    @flag("archived", "-a")
+    def tags(*, archived: bool = False) -> None:
+        calls.append(f"tags {archived}")
+
+    notes.add(tags)
+
+    @command("add")
+    def add_tag() -> None:
+        calls.append("add tag")
+
+    tags.add(add_tag)
+
+    @group("due_soon")
+    @flag("overdue", "-o")
+    def due_soon(*, overdue: bool = False) -> None:
+        calls.append(f"due soon {overdue}")
+
+    notes.add(due_soon)
+
+    @command("list")
+    def list_due() -> None:
+        calls.append("list due")
+
+    due_soon.add(list_due)
+
+    result = run(notes, args)
+
+    assert result.returncode == 2
+    assert result.stdout == ""
+    assert result.stderr == f"error: {message}\nRun '{path} --help' for usage.\n"
     assert calls == []
 
 
@@ -504,18 +660,18 @@ def test_group_errors_before_an_unknown_command_are_reported() -> None:
     ("args", "message"),
     [
         ([], "'notes' needs a command."),
-        (["-q"], "'notes' needs a command."),
         (["tags"], "'notes tags' needs a command."),
         (["due-soon"], "'notes due-soon' needs a command."),
     ],
 )
-def test_missing_command_is_reported(args: list[str], message: str) -> None:
+def test_group_without_help_needs_a_command_when_nothing_follows(
+    args: list[str], message: str
+) -> None:
     calls: list[str] = []
 
-    @group("notes")
-    @flag("quiet", "-q")
-    def notes(*, quiet: bool = False) -> None:
-        calls.append(f"notes {quiet}")
+    @group("notes", help_flags=False)
+    def notes() -> None:
+        calls.append("notes")
 
     @group("tags")
     def tags() -> None:
@@ -578,7 +734,9 @@ def test_unknown_group_option_takes_a_value_unless_a_command_follows(
 
     assert result.returncode == 2
     assert result.stdout == ""
-    assert result.stderr == f"error: unknown option '{written}'.\n"
+    assert result.stderr == (
+        f"error: unknown option '{written}'.\nRun 'notes add --help' for usage.\n"
+    )
     assert calls == []
 
 
@@ -666,11 +824,16 @@ def test_running_a_nested_command_directly_knows_no_group_options() -> None:
     result = run(add, ["-q", "milk"])
 
     assert result.returncode == 2
-    assert result.stderr == "error: unknown option '-q'.\n"
+    assert result.stderr == (
+        "error: unknown option '-q'.\nRun 'add --help' for usage.\n"
+    )
     assert calls == []
 
 
-def test_running_a_nested_group_directly_names_only_that_group() -> None:
+def test_running_a_nested_group_directly_names_only_that_group(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("COLUMNS", raising=False)
     calls: list[str] = []
 
     @group("notes")
@@ -692,7 +855,16 @@ def test_running_a_nested_group_directly_names_only_that_group() -> None:
     result = run(tags, [])
 
     assert result.returncode == 2
-    assert result.stderr == "error: 'tags' needs a command.\n"
+    assert result.stdout == ""
+    assert result.stderr == (
+        "Usage: tags [OPTIONS] COMMAND\n"
+        "\n"
+        "Options:\n"
+        "  -h, --help  Show this help and exit.\n"
+        "\n"
+        "Commands:\n"
+        "  add\n"
+    )
     assert calls == []
 
 
@@ -825,6 +997,7 @@ def test_unknown_group_option_close_to_a_flag_leaves_the_command_word_alone() ->
         (
             "error: unknown option '--verbos'. Did you mean '--verbose'?\n"
             "error: 'lst' isn't a notes command. Did you mean 'list'?\n"
+            "Run 'notes --help' for usage.\n"
         ),
     )
 
@@ -846,7 +1019,10 @@ def test_command_option_with_an_attached_value_before_the_command(word: str) -> 
     assert (result.returncode, result.stdout, result.stderr) == (
         2,
         "",
-        "error: -l belongs to 'list'. Write it right after 'list'.\n",
+        (
+            "error: -l belongs to 'list'. Write it right after 'list'.\n"
+            "Run 'notes list --help' for usage.\n"
+        ),
     )
 
 
@@ -868,7 +1044,11 @@ def test_errors_are_listed_node_by_node_from_the_top() -> None:
     assert (result.returncode, result.stdout, result.stderr) == (
         2,
         "",
-        "error: --limit: 'ten' isn't a whole number.\nerror: TEXT is required.\n",
+        (
+            "error: --limit: 'ten' isn't a whole number.\n"
+            "error: TEXT is required.\n"
+            "Run 'notes add --help' for usage.\n"
+        ),
     )
 
 

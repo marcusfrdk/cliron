@@ -1,14 +1,22 @@
 import inspect
 import sys
 import typing
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from types import FunctionType
 from typing import ClassVar, NoReturn
 
+from cliron._builtin_options import (
+    Builtins,
+    HelpOption,
+    VersionOption,
+    help_option_for,
+    version_option_for,
+)
 from cliron._conversion import SUPPORTED, converter_for, describe
+from cliron._help import render_help, terminal_width, usage_hint
 from cliron._names import check_name, is_parameter_name, parameter_suggestion, token
 from cliron._parents import Argument, Flag, Parent, call, display, flags, parents_of
-from cliron._parsing import Definition, Input, Node, parse
+from cliron._parsing import Definition, Input, Node, Request, parse
 
 _UNSUPPORTED_KINDS = {
     inspect.Parameter.POSITIONAL_ONLY: (
@@ -35,15 +43,23 @@ class Root:
 
     kind: ClassVar[str]
 
-    def __init__(self, name: str, function: Callable[..., object]) -> None:
+    def __init__(
+        self,
+        name: str,
+        function: Callable[..., object],
+        help_option: HelpOption | None = None,
+        version_option: VersionOption | None = None,
+    ) -> None:
         """
         Turn a function into a command or group.
 
         :param name: The name, in snake_case.
         :param function: The function to run.
+        :param help_option: The help flags, or ``None`` to inherit them.
+        :param version_option: The version, or ``None`` to inherit it.
         :raises TypeError: If ``function`` isn't a function, or a group has an
             argument.
-        :raises ValueError: If two parents share a name or a short flag.
+        :raises ValueError: If two parents share a name or a flag.
         """
         if not isinstance(function, FunctionType):
             message = f"@{self.kind} must decorate a function."
@@ -51,6 +67,8 @@ class Root:
         self.name: str = name
         self.function: FunctionType = function
         self.parents: tuple[Parent, ...] = parents_of(function)
+        self.help_option: HelpOption | None = help_option
+        self.version_option: VersionOption | None = version_option
         self.commands: dict[str, Command | Group] = {}
         self._definition: Definition | None = None
         self._check_parents()
@@ -72,6 +90,28 @@ class Root:
         if self._definition is None:
             self._definition = _define(self)
         return self._definition
+
+    def builtins(self, inherited: Builtins) -> Builtins:
+        """
+        Combine the built-in options this node declares with those it inherits.
+
+        :param inherited: The built-in options of the group above, or the
+            defaults at the top of the command line.
+        :returns: The node's help and version options.
+        :raises ValueError: If one of their flags is also one of the node's
+            options, or help and version share a flag.
+        """
+        builtins = Builtins(
+            self.help_option or inherited.help,
+            self.version_option or inherited.version,
+        )
+        definition = self.definition()
+        try:
+            _check_builtin_flags(definition, builtins)
+        except ValueError as error:
+            error.add_note(_location(self))
+            raise
+        return builtins
 
     def _check_parents(self) -> None:
         names: dict[str, Parent] = {}
@@ -126,7 +166,12 @@ class Group(Root):
             self.commands[key] = node
 
 
-def command(name: str) -> Callable[[Callable[..., object]], Command]:
+def command(
+    name: str,
+    *,
+    help_flags: bool | Sequence[str] = True,
+    version: str | None = None,
+) -> Callable[[Callable[..., object]], Command]:
     """
     Turn a function into a command.
 
@@ -136,19 +181,33 @@ def command(name: str) -> Callable[[Callable[..., object]], Command]:
     ``None``, a ``str`` as it is, and anything else as JSON.
 
     :param name: The command's name, in snake_case.
+    :param help_flags: The flags that show help. ``True`` takes the enclosing
+        group's, or ``-h`` and ``--help`` at the top. ``False`` or an empty list
+        turns help off.
+    :param version: A version that ``--version`` prints, such as ``"1.4.0"``.
+        ``None`` takes the enclosing group's.
     :returns: A decorator that turns a function into the command.
-    :raises TypeError: If ``name`` isn't a string.
-    :raises ValueError: If ``name`` isn't snake_case.
+    :raises TypeError: If ``name`` or ``version`` isn't a string, or
+        ``help_flags`` isn't a bool or a list of strings.
+    :raises ValueError: If ``name`` isn't snake_case, or a help flag isn't a
+        short or long flag or is listed twice.
     """
     checked = check_name(name, "command")
+    help_option = help_option_for(help_flags, "command")
+    version_option = version_option_for(version, "command")
 
     def decorate(function: Callable[..., object]) -> Command:
-        return Command(checked, function)
+        return Command(checked, function, help_option, version_option)
 
     return decorate
 
 
-def group(name: str) -> Callable[[Callable[..., object]], Group]:
+def group(
+    name: str,
+    *,
+    help_flags: bool | Sequence[str] = True,
+    version: str | None = None,
+) -> Callable[[Callable[..., object]], Group]:
     """
     Turn a function into a group of commands.
 
@@ -157,14 +216,25 @@ def group(name: str) -> Callable[[Callable[..., object]], Group]:
     asked for, and must return ``None``.
 
     :param name: The group's name, in snake_case.
+    :param help_flags: The flags that show help, for the group and everything
+        in it that doesn't choose its own. ``True`` takes the enclosing group's,
+        or ``-h`` and ``--help`` at the top. ``False`` or an empty list turns
+        help off.
+    :param version: A version that ``--version`` prints, for the group and
+        everything in it, such as ``"1.4.0"``. ``None`` takes the enclosing
+        group's.
     :returns: A decorator that turns a function into the group.
-    :raises TypeError: If ``name`` isn't a string.
-    :raises ValueError: If ``name`` isn't snake_case.
+    :raises TypeError: If ``name`` or ``version`` isn't a string, or
+        ``help_flags`` isn't a bool or a list of strings.
+    :raises ValueError: If ``name`` isn't snake_case, or a help flag isn't a
+        short or long flag or is listed twice.
     """
     checked = check_name(name, "group")
+    help_option = help_option_for(help_flags, "group")
+    version_option = version_option_for(version, "group")
 
     def decorate(function: Callable[..., object]) -> Group:
-        return Group(checked, function)
+        return Group(checked, function, help_option, version_option)
 
     return decorate
 
@@ -197,9 +267,16 @@ def _contains(group: Group, node: Root) -> bool:
 
 def main(root: Node, args: list[str]) -> int:
     parsed = parse(root, args)
+    request = parsed.request
+    if request is not None:
+        return _answer(request)
     if parsed.errors:
         for error in parsed.errors:
             _ = sys.stderr.write(f"error: {error}\n")
+        nodes = [node for node, _ in parsed.path]
+        hint = usage_hint(nodes, parsed.builtins)
+        if hint is not None:
+            _ = sys.stderr.write(hint + "\n")
         return 2
     *groups, (leaf, values) = parsed.path
     for node, group_values in groups:
@@ -212,6 +289,39 @@ def main(root: Node, args: list[str]) -> int:
             raise TypeError(message)
     _render(leaf, leaf.function(**values))
     return 0
+
+
+def _answer(request: Request) -> int:
+    if request.kind == "version" and request.builtins.version is not None:
+        name = token(request.nodes[0].name)
+        _ = sys.stdout.write(f"{name} {request.builtins.version.version}\n")
+        return 0
+    stream = sys.stdout if request.kind == "help" else sys.stderr
+    help_text = render_help(request.nodes, request.builtins, terminal_width(stream))
+    _ = stream.write(help_text)
+    return 0 if request.kind == "help" else 2
+
+
+def _check_builtin_flags(definition: Definition, builtins: Builtins) -> None:
+    version_option = builtins.version
+    if version_option is not None:
+        for flag in set(builtins.help.flags) & set(version_option.flags):
+            message = (
+                f"{flag} is used by both help_flags and version. "
+                f"Leave {flag} out of help_flags."
+            )
+            raise ValueError(message)
+    for flag, kind in builtins.flags.items():
+        target = definition.options.get(flag)
+        if target is not None:
+            fix = (
+                ", or choose other help_flags" if kind == "help" else " for the option"
+            )
+            message = (
+                f"{flag} is used by both {call(target.parent)} and {kind}. "
+                f"Use another flag{fix}."
+            )
+            raise ValueError(message)
 
 
 def _render(node: Node, result: object) -> None:
@@ -239,17 +349,18 @@ def _define(root: Root) -> Definition:
         definition = Definition(_inputs(root))
         _check_arguments(definition.arguments)
     except Exception as error:
-        original = typing.cast("object", inspect.unwrap(root.function))
-        code = (
-            original if isinstance(original, FunctionType) else root.function
-        ).__code__
-        note = (
-            f"in {root.kind} '{token(root.name)}', "
-            f"defined at {code.co_filename}:{code.co_firstlineno}"
-        )
-        error.add_note(note)
+        error.add_note(_location(root))
         raise
     return definition
+
+
+def _location(root: Root) -> str:
+    original = typing.cast("object", inspect.unwrap(root.function))
+    code = (original if isinstance(original, FunctionType) else root.function).__code__
+    return (
+        f"in {root.kind} '{token(root.name)}', "
+        f"defined at {code.co_filename}:{code.co_firstlineno}"
+    )
 
 
 def _inputs(root: Root) -> list[Input]:

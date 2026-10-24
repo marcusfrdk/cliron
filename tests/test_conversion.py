@@ -80,7 +80,10 @@ def test_int_rejects_anything_but_ascii_digits_with_an_optional_sign(
 
     assert result.returncode == 2
     assert result.stdout == ""
-    assert result.stderr == f"error: --count: {word!r} isn't a whole number.\n"
+    assert result.stderr == (
+        f"error: --count: {word!r} isn't a whole number.\n"
+        "Run 'repeat --help' for usage.\n"
+    )
 
 
 @pytest.mark.parametrize(
@@ -122,7 +125,9 @@ def test_float_rejects_special_values_underscores_and_words(word: str) -> None:
 
     assert result.returncode == 2
     assert result.stdout == ""
-    assert result.stderr == f"error: --ratio: {word!r} isn't a number.\n"
+    assert result.stderr == (
+        f"error: --ratio: {word!r} isn't a number.\nRun 'scale --help' for usage.\n"
+    )
 
 
 def test_path_argument_becomes_a_path() -> None:
@@ -154,7 +159,9 @@ def test_path_rejects_an_empty_value(args: list[str]) -> None:
 
     assert result.returncode == 2
     assert result.stdout == ""
-    assert result.stderr == "error: --output: a path can't be empty.\n"
+    assert result.stderr == (
+        "error: --output: a path can't be empty.\nRun 'save --help' for usage.\n"
+    )
     assert received == []
 
 
@@ -182,7 +189,10 @@ def test_date_rejects_a_value_that_is_not_an_iso_date(word: str) -> None:
 
     assert result.returncode == 2
     assert result.stdout == ""
-    assert result.stderr == f"error: --since: {word!r} isn't a date (YYYY-MM-DD).\n"
+    assert result.stderr == (
+        f"error: --since: {word!r} isn't a date (YYYY-MM-DD).\n"
+        "Run 'log --help' for usage.\n"
+    )
 
 
 @pytest.mark.parametrize(
@@ -219,6 +229,7 @@ def test_datetime_rejects_a_value_that_is_not_an_iso_datetime(word: str) -> None
     assert result.stdout == ""
     assert result.stderr == (
         f"error: --at: {word!r} isn't a date and time (YYYY-MM-DD HH:MM).\n"
+        "Run 'remind --help' for usage.\n"
     )
 
 
@@ -252,6 +263,7 @@ def test_time_rejects_a_value_that_is_not_an_iso_time(word: str) -> None:
     assert result.stdout == ""
     assert result.stderr == (
         f"error: --wake: {word!r} isn't a time (HH:MM or HH:MM:SS).\n"
+        "Run 'alarm --help' for usage.\n"
     )
 
 
@@ -292,6 +304,7 @@ def test_enum_rejects_other_spellings_and_lists_the_choices(word: str) -> None:
     assert result.stdout == ""
     assert result.stderr == (
         f"error: --sort: {word!r} isn't one of name, size, modified-at.\n"
+        "Run 'list-files --help' for usage.\n"
     )
     assert received == []
 
@@ -321,7 +334,10 @@ def test_literal_rejects_anything_but_its_exact_strings(word: str) -> None:
 
     assert result.returncode == 2
     assert result.stdout == ""
-    assert result.stderr == f"error: --style: {word!r} isn't one of plain, fancy.\n"
+    assert result.stderr == (
+        f"error: --style: {word!r} isn't one of plain, fancy.\n"
+        "Run 'render --help' for usage.\n"
+    )
 
 
 @pytest.mark.parametrize(("args", "expected"), [([], "None"), (["--limit", "3"], "3")])
@@ -368,7 +384,9 @@ def test_union_with_none_reports_a_conversion_error_of_the_inner_type() -> None:
 
     assert result.returncode == 2
     assert result.stdout == ""
-    assert result.stderr == "error: --limit: 'two' isn't a whole number.\n"
+    assert result.stderr == (
+        "error: --limit: 'two' isn't a whole number.\nRun 'search --help' for usage.\n"
+    )
 
 
 def test_union_with_none_without_a_default_is_required() -> None:
@@ -381,7 +399,9 @@ def test_union_with_none_without_a_default_is_required() -> None:
 
     assert result.returncode == 2
     assert result.stdout == ""
-    assert result.stderr == "error: --limit is required.\n"
+    assert result.stderr == (
+        "error: --limit is required.\nRun 'search --help' for usage.\n"
+    )
 
 
 def test_list_option_collects_every_occurrence_in_order() -> None:
@@ -476,7 +496,9 @@ def test_list_option_without_a_default_is_required() -> None:
 
     assert result.returncode == 2
     assert result.stdout == ""
-    assert result.stderr == "error: --label is required.\n"
+    assert result.stderr == (
+        "error: --label is required.\nRun 'tag --help' for usage.\n"
+    )
 
 
 def test_list_argument_without_a_default_is_required() -> None:
@@ -489,7 +511,9 @@ def test_list_argument_without_a_default_is_required() -> None:
 
     assert result.returncode == 2
     assert result.stdout == ""
-    assert result.stderr == "error: FILES is required.\n"
+    assert result.stderr == (
+        "error: FILES is required.\nRun 'lint --help' for usage.\n"
+    )
 
 
 def test_list_option_reports_one_error_per_invalid_value() -> None:
@@ -505,6 +529,7 @@ def test_list_option_reports_one_error_per_invalid_value() -> None:
     assert result.stderr == (
         "error: --width: 'x' isn't a whole number.\n"
         "error: --width: 'y' isn't a whole number.\n"
+        "Run 'resize --help' for usage.\n"
     )
 
 
@@ -521,6 +546,7 @@ def test_list_argument_reports_one_error_per_invalid_value() -> None:
     assert result.stderr == (
         "error: NUMBERS: 'x' isn't a whole number.\n"
         "error: NUMBERS: 'y' isn't a whole number.\n"
+        "Run 'total --help' for usage.\n"
     )
 
 
@@ -567,6 +593,7 @@ def test_int_with_more_digits_than_python_allows_is_rejected() -> None:
     assert result.returncode == 2
     assert result.stderr == (
         f"error: --number: a whole number can't have more than {limit} digits.\n"
+        "Run 'count --help' for usage.\n"
     )
 
 
@@ -580,7 +607,9 @@ def test_float_that_overflows_is_out_of_range(word: str) -> None:
     result = run(ratio, [f"--value={word}"])
 
     assert result.returncode == 2
-    assert result.stderr == f"error: --value: {word!r} is out of range.\n"
+    assert result.stderr == (
+        f"error: --value: {word!r} is out of range.\nRun 'ratio --help' for usage.\n"
+    )
 
 
 def test_literal_of_a_str_enum_member_is_typed_as_its_value() -> None:

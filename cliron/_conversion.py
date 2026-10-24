@@ -3,7 +3,7 @@ import re
 import sys
 import typing
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, time
 from enum import Enum
 from pathlib import Path
@@ -25,7 +25,9 @@ SUPPORTED = (
 @dataclass(frozen=True)
 class Converter:
     convert: Callable[[str], object]
+    metavar: str
     collect: Callable[[list[object]], object] | None = None
+    choices: tuple[str, ...] = ()
 
 
 def converter_for(annotation: object) -> Converter | None:
@@ -38,8 +40,7 @@ def converter_for(annotation: object) -> Converter | None:
         return _collection(arguments[0], list)
     if origin is tuple and arguments[1:] == (Ellipsis,):
         return _collection(arguments[0], tuple)
-    convert = _scalar(annotation)
-    return None if convert is None else Converter(convert)
+    return _scalar(annotation)
 
 
 def describe(annotation: object) -> str:
@@ -55,11 +56,11 @@ def _is_union(origin: object) -> bool:
 def _collection(
     annotation: object, collect: Callable[[list[object]], object]
 ) -> Converter | None:
-    convert = _scalar(annotation)
-    return None if convert is None else Converter(convert, collect)
+    converter = _scalar(annotation)
+    return None if converter is None else replace(converter, collect=collect)
 
 
-def _scalar(annotation: object) -> Callable[[str], object] | None:
+def _scalar(annotation: object) -> Converter | None:
     if isinstance(annotation, type):
         if annotation in _SCALARS:
             return _SCALARS[annotation]
@@ -73,10 +74,14 @@ def _scalar(annotation: object) -> Callable[[str], object] | None:
     return None
 
 
+def typed_member(member: Enum) -> str:
+    return token(member.name.lower())
+
+
 def _members(enum: type[Enum]) -> dict[str, Enum]:
     members: dict[str, Enum] = {}
     for member in enum:
-        key = token(member.name.lower())
+        key = typed_member(member)
         other = members.setdefault(key, member)
         if other is not member:
             message = (
@@ -127,8 +132,8 @@ def _to_path(value: str) -> Path:
 
 
 def _from_iso(
-    parse: Callable[[str], object], description: str
-) -> Callable[[str], object]:
+    parse: Callable[[str], object], description: str, metavar: str
+) -> Converter:
     def convert(value: str) -> object:
         try:
             return parse(value)
@@ -136,25 +141,27 @@ def _from_iso(
             message = f"{value!r} isn't {description}."
             raise ValueError(message) from None
 
-    return convert
+    return Converter(convert, metavar)
 
 
-def _choices(choices: Mapping[str, object]) -> Callable[[str], object]:
+def _choices(choices: Mapping[str, object]) -> Converter:
     def convert(value: str) -> object:
         if value in choices:
             return choices[value]
         message = f"{value!r} isn't one of {', '.join(choices)}."
         raise ValueError(message)
 
-    return convert
+    return Converter(convert, f"[{'|'.join(choices)}]", choices=tuple(choices))
 
 
-_SCALARS: dict[type, Callable[[str], object]] = {
-    str: _to_str,
-    int: _to_int,
-    float: _to_float,
-    Path: _to_path,
-    date: _from_iso(date.fromisoformat, "a date (YYYY-MM-DD)"),
-    datetime: _from_iso(datetime.fromisoformat, "a date and time (YYYY-MM-DD HH:MM)"),
-    time: _from_iso(time.fromisoformat, "a time (HH:MM or HH:MM:SS)"),
+_SCALARS: dict[type, Converter] = {
+    str: Converter(_to_str, "TEXT"),
+    int: Converter(_to_int, "INT"),
+    float: Converter(_to_float, "FLOAT"),
+    Path: Converter(_to_path, "PATH"),
+    date: _from_iso(date.fromisoformat, "a date (YYYY-MM-DD)", "DATE"),
+    datetime: _from_iso(
+        datetime.fromisoformat, "a date and time (YYYY-MM-DD HH:MM)", "DATETIME"
+    ),
+    time: _from_iso(time.fromisoformat, "a time (HH:MM or HH:MM:SS)", "TIME"),
 }

@@ -64,6 +64,9 @@ skip_covered = true
 select = ["ALL"]
 ignore = ["COM812", "CPY001", "D203", "D212"]
 
+[tool.ruff.lint.flake8-builtins]
+ignorelist = ["help"]
+
 [tool.ruff.lint.per-file-ignores]
 "cliron/**" = ["PLC0415"]
 "tests/**" = ["D1", "INP001", "PLR2004", "S101", "S603"]

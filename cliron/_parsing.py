@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from operator import itemgetter
 from typing import ClassVar, Protocol
 
+from cliron._builtin_options import DEFAULT_BUILTINS, Builtins
 from cliron._conversion import NUMBER, Converter
 from cliron._names import token
 from cliron._parents import Argument, Parent, display, flags
@@ -54,11 +55,26 @@ class Node(Protocol):
 
     def definition(self) -> Definition: ...
 
+    def builtins(self, inherited: Builtins) -> Builtins: ...
+
+
+@dataclass(frozen=True)
+class Request:
+    kind: str
+    nodes: list[Node]
+    builtins: Builtins
+
 
 @dataclass(frozen=True)
 class Parsed:
     path: list[tuple[Node, dict[str, object]]]
     errors: list[Exception]
+    builtins: Builtins
+    request: Request | None = None
+
+
+def node_path(nodes: Iterable[Node]) -> str:
+    return " ".join(token(node.name) for node in nodes)
 
 
 def parse(root: Node, args: Sequence[str]) -> Parsed:
@@ -66,9 +82,12 @@ def parse(root: Node, args: Sequence[str]) -> Parsed:
 
 
 class _Segment:
-    def __init__(self, node: Node) -> None:
+    def __init__(self, node: Node, inherited: Builtins, start: int) -> None:
         self.node: Node = node
         self.definition: Definition = node.definition()
+        self.builtins: Builtins = node.builtins(inherited)
+        self.builtin_flags: dict[str, str] = self.builtins.flags
+        self.start: int = start
         self.raw: dict[str, list[str]] = {}
         self.occurrences: dict[str, int] = {}
         self.words: list[tuple[int, str]] = []
@@ -127,16 +146,30 @@ class _Reader:
         self.position: int = 0
         self.options_ended: bool = False
         self.segments: list[_Segment] = []
+        self.request: tuple[str, int] | None = None
+        self.bare: tuple[int, Exception] | None = None
 
     def read(self, root: Node) -> Parsed:
         node: Node | None = root
+        inherited = DEFAULT_BUILTINS
         while node is not None:
-            segment = _Segment(node)
+            segment = _Segment(node, inherited, self.position)
             self.segments.append(segment)
             self._read_segment(segment)
             node = self._read_command(segment)
+            inherited = segment.builtins
+        if self.request is not None:
+            return self._answer(*self.request)
         self._report_unknown()
-        return self._resolve()
+        parsed = self._resolve()
+        if self.bare is not None and parsed.errors == [self.bare[1]]:
+            return self._answer("usage", self.bare[0])
+        return parsed
+
+    def _answer(self, kind: str, index: int) -> Parsed:
+        nodes = [segment.node for segment in self.segments[: index + 1]]
+        builtins = self.segments[index].builtins
+        return Parsed([], [], builtins, Request(kind, nodes, builtins))
 
     def _read_segment(self, segment: _Segment) -> None:
         while self.position < len(self.args):
@@ -159,10 +192,12 @@ class _Reader:
         if segment.node.kind != "group":
             return None
         commands = segment.node.commands
-        path = " ".join(token(part.node.name) for part in self.segments)
+        path = node_path(part.node for part in self.segments)
         if self.position == len(self.args):
             error = LookupError(f"'{path}' needs a command.")
             segment.word_errors.append((self.position, error))
+            if segment.start == self.position and segment.builtins.help.flags:
+                self.bare = (len(self.segments) - 1, error)
             return None
         start = self.position
         word = self.args[start]
@@ -175,6 +210,9 @@ class _Reader:
 
     def _read_long(self, segment: _Segment, word: str, start: int) -> None:
         flag, separator, value = word.partition("=")
+        if flag in segment.builtin_flags:
+            self._read_builtin(segment, flag, start, given_value=bool(separator))
+            return
         target = segment.definition.options.get(flag)
         if target is None:
             if not separator and self._guess_takes_value(segment, flag, more=False):
@@ -198,6 +236,13 @@ class _Reader:
         for index, letter in enumerate(letters):
             flag = f"-{letter}"
             rest = letters[index + 1 :]
+            if flag in segment.builtin_flags:
+                self._read_builtin(
+                    segment, flag, start, given_value=rest.startswith("=")
+                )
+                if rest.startswith("="):
+                    return
+                continue
             target = segment.definition.options.get(flag)
             if target is None:
                 segment.unknown.append((start, flag))
@@ -216,6 +261,16 @@ class _Reader:
                 segment.report(target, _takes_no_value(target))
                 return
 
+    def _read_builtin(
+        self, segment: _Segment, flag: str, start: int, *, given_value: bool
+    ) -> None:
+        if given_value:
+            segment.word_errors.append(
+                (start, ValueError(f"{flag} doesn't take a value."))
+            )
+        else:
+            self.request = (segment.builtin_flags[flag], len(self.segments) - 1)
+
     def _read_attached(
         self, segment: _Segment, target: Input, flag: str, rest: str
     ) -> None:
@@ -223,7 +278,10 @@ class _Reader:
             segment.report(target, _needs_value(target))
         elif rest.startswith("="):
             value = rest[1:]
-            message = f"Use {flag}{value} or {flag} {value} instead of {flag}={value}."
+            separate = (
+                f"{target.display}={value}" if _is_option(value) else f"{flag} {value}"
+            )
+            message = f"Use {flag}{value} or {separate} instead of {flag}={value}."
             segment.report(target, ValueError(message))
         elif rest:
             segment.add(target, rest)
@@ -290,7 +348,7 @@ class _Reader:
                 error for _, error in sorted(segment.word_errors, key=itemgetter(0))
             )
             path.append((segment.node, values))
-        return Parsed(path, errors)
+        return Parsed(path, errors, self.segments[-1].builtins)
 
 
 def _is_option(word: str) -> bool:

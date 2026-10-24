@@ -206,7 +206,12 @@ def test_system_exit_in_group_callback_stops_the_command() -> None:
     ("argv", "code", "output"),
     [
         pytest.param(["greet.py", "Ada"], 0, ("Hello, Ada!\n", ""), id="success"),
-        pytest.param(["greet.py"], 2, ("", "error: NAME is required.\n"), id="invalid"),
+        pytest.param(
+            ["greet.py"],
+            2,
+            ("", "error: NAME is required.\nRun 'greet --help' for usage.\n"),
+            id="invalid",
+        ),
     ],
 )
 def test_calling_the_cli_runs_sys_argv_and_exits(
@@ -345,7 +350,7 @@ def test_run_escapes_unencodable_text_on_stderr_as_python_does() -> None:
     assert (result.returncode, result.stdout, result.stderr) == (
         2,
         "",
-        "error: unknown option '--\\udcff'.\n",
+        "error: unknown option '--\\udcff'.\nRun 'greet --help' for usage.\n",
     )
 
 

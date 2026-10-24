@@ -40,6 +40,7 @@ def test_every_input_error_is_reported_at_once() -> None:
         "error: NAME is required.\n"
         "error: --count: 'two' isn't a whole number.\n"
         "error: unknown option '--shot'. Did you mean '--shout'?\n"
+        "Run 'greet --help' for usage.\n"
     )
     assert calls == []
 
@@ -169,7 +170,7 @@ def test_short_option_with_an_equals_sign_is_an_error(args: list[str]) -> None:
     assert (result.returncode, result.stdout, result.stderr) == (
         2,
         "",
-        "error: Use -c3 or -c 3 instead of -c=3.\n",
+        "error: Use -c3 or -c 3 instead of -c=3.\nRun 'greet --help' for usage.\n",
     )
     assert calls == []
 
@@ -233,7 +234,7 @@ def test_option_value_cannot_start_with_a_dash(args: list[str], error: str) -> N
     assert (result.returncode, result.stdout, result.stderr) == (
         2,
         "",
-        f"error: {error}\n",
+        f"error: {error}\nRun 'greet --help' for usage.\n",
     )
     assert calls == []
 
@@ -268,7 +269,7 @@ def test_option_at_the_end_of_the_line_needs_a_value(args: list[str]) -> None:
     assert (result.returncode, result.stdout, result.stderr) == (
         2,
         "",
-        "error: --count needs a value.\n",
+        "error: --count needs a value.\nRun 'greet --help' for usage.\n",
     )
     assert calls == []
 
@@ -296,7 +297,7 @@ def test_flag_given_a_value_is_an_error(args: list[str], error: str) -> None:
     assert (result.returncode, result.stdout, result.stderr) == (
         2,
         "",
-        f"error: {error}\n",
+        f"error: {error}\nRun 'greet --help' for usage.\n",
     )
     assert calls == []
 
@@ -321,7 +322,7 @@ def test_plain_option_given_twice_is_reported_once(args: list[str]) -> None:
     assert (result.returncode, result.stdout, result.stderr) == (
         2,
         "",
-        "error: --count can only be given once.\n",
+        "error: --count can only be given once.\nRun 'repeat --help' for usage.\n",
     )
     assert calls == []
 
@@ -348,7 +349,7 @@ def test_bool_flag_given_twice_is_reported_once(args: list[str]) -> None:
     assert (result.returncode, result.stdout, result.stderr) == (
         2,
         "",
-        "error: --shout can only be given once.\n",
+        "error: --shout can only be given once.\nRun 'greet --help' for usage.\n",
     )
     assert calls == []
 
@@ -433,7 +434,7 @@ def test_word_after_double_dash_is_never_an_option() -> None:
     assert (result.returncode, result.stdout, result.stderr) == (
         2,
         "",
-        "error: unexpected argument '--shout'.\n",
+        "error: unexpected argument '--shout'.\nRun 'greet --help' for usage.\n",
     )
     assert calls == []
 
@@ -475,7 +476,10 @@ def test_long_options_cannot_be_abbreviated(args: list[str]) -> None:
     assert (result.returncode, result.stdout, result.stderr) == (
         2,
         "",
-        "error: unknown option '--cou'. Did you mean '--count'?\n",
+        (
+            "error: unknown option '--cou'. Did you mean '--count'?\n"
+            "Run 'repeat --help' for usage.\n"
+        ),
     )
     assert calls == []
 
@@ -493,7 +497,7 @@ def test_unknown_option_without_a_close_match_has_no_suggestion() -> None:
     assert (result.returncode, result.stdout, result.stderr) == (
         2,
         "",
-        "error: unknown option '--colour'.\n",
+        "error: unknown option '--colour'.\nRun 'repeat --help' for usage.\n",
     )
     assert calls == []
 
@@ -512,7 +516,7 @@ def test_unknown_short_option_is_reported() -> None:
     assert (result.returncode, result.stdout, result.stderr) == (
         2,
         "",
-        "error: unknown option '-x'.\n",
+        "error: unknown option '-x'.\nRun 'greet --help' for usage.\n",
     )
     assert calls == []
 
@@ -533,6 +537,7 @@ def test_unknown_option_takes_a_value_when_its_closest_match_does() -> None:
     assert result.stderr == (
         "error: TITLE is required.\n"
         "error: unknown option '--tags'. Did you mean '--tag'?\n"
+        "Run 'add --help' for usage.\n"
     )
     assert calls == []
 
@@ -551,7 +556,10 @@ def test_unknown_option_takes_no_value_when_its_closest_match_is_a_flag() -> Non
     assert (result.returncode, result.stdout, result.stderr) == (
         2,
         "",
-        "error: unknown option '--shoutt'. Did you mean '--shout'?\n",
+        (
+            "error: unknown option '--shoutt'. Did you mean '--shout'?\n"
+            "Run 'greet --help' for usage.\n"
+        ),
     )
     assert calls == []
 
@@ -570,7 +578,7 @@ def test_unknown_letter_inside_a_bundle_is_reported() -> None:
     assert (result.returncode, result.stdout, result.stderr) == (
         2,
         "",
-        "error: unknown option '-x'.\n",
+        "error: unknown option '-x'.\nRun 'greet --help' for usage.\n",
     )
     assert calls == []
 
@@ -588,7 +596,9 @@ def test_each_extra_word_is_an_unexpected_argument() -> None:
     assert result.returncode == 2
     assert result.stdout == ""
     assert result.stderr == (
-        "error: unexpected argument 'x'.\nerror: unexpected argument 'y'.\n"
+        "error: unexpected argument 'x'.\n"
+        "error: unexpected argument 'y'.\n"
+        "Run 'greet --help' for usage.\n"
     )
     assert calls == []
 
@@ -606,7 +616,7 @@ def test_command_without_arguments_rejects_a_word() -> None:
     assert (result.returncode, result.stdout, result.stderr) == (
         2,
         "",
-        "error: unexpected argument 'x'.\n",
+        "error: unexpected argument 'x'.\nRun 'status --help' for usage.\n",
     )
     assert calls == []
 
@@ -614,8 +624,15 @@ def test_command_without_arguments_rejects_a_word() -> None:
 @pytest.mark.parametrize(
     ("args", "expected"),
     [
-        ([], "error: FILE_NAME is required.\nerror: DESTINATION is required.\n"),
-        (["a"], "error: DESTINATION is required.\n"),
+        (
+            [],
+            (
+                "error: FILE_NAME is required.\n"
+                "error: DESTINATION is required.\n"
+                "Run 'copy --help' for usage.\n"
+            ),
+        ),
+        (["a"], "error: DESTINATION is required.\nRun 'copy --help' for usage.\n"),
     ],
 )
 def test_missing_required_arguments_are_reported(
@@ -638,8 +655,18 @@ def test_missing_required_arguments_are_reported(
 @pytest.mark.parametrize(
     ("args", "expected"),
     [
-        ([], "error: --host is required.\nerror: --api-key is required.\n"),
-        (["--api-key", "k"], "error: --host is required.\n"),
+        (
+            [],
+            (
+                "error: --host is required.\n"
+                "error: --api-key is required.\n"
+                "Run 'connect --help' for usage.\n"
+            ),
+        ),
+        (
+            ["--api-key", "k"],
+            "error: --host is required.\nRun 'connect --help' for usage.\n",
+        ),
     ],
 )
 def test_missing_required_options_are_reported(args: list[str], expected: str) -> None:
@@ -680,6 +707,7 @@ def test_errors_list_declared_inputs_first_then_unplaced_words_in_order() -> Non
         "error: unknown option '-q'.\n"
         "error: unexpected argument 'surplus'.\n"
         "error: unknown option '--zzz'.\n"
+        "Run 'deploy --help' for usage.\n"
     )
     assert calls == []
 
@@ -734,8 +762,14 @@ def test_arguments_follow_decorator_order_across_parameter_kinds() -> None:
 @pytest.mark.parametrize(
     ("args", "stderr"),
     [
-        (["-v=1"], "error: --verbose doesn't take a value.\n"),
-        (["-qv=1"], "error: --verbose doesn't take a value.\n"),
+        (
+            ["-v=1"],
+            "error: --verbose doesn't take a value.\nRun 'tool --help' for usage.\n",
+        ),
+        (
+            ["-qv=1"],
+            "error: --verbose doesn't take a value.\nRun 'tool --help' for usage.\n",
+        ),
     ],
 )
 def test_short_counting_flag_given_a_value_is_an_error(
@@ -763,7 +797,7 @@ def test_unknown_short_option_with_an_equals_sign_takes_the_rest_as_its_value() 
     assert (result.returncode, result.stdout, result.stderr) == (
         2,
         "",
-        "error: unknown option '-x'.\n",
+        "error: unknown option '-x'.\nRun 'greet --help' for usage.\n",
     )
 
 
@@ -778,7 +812,7 @@ def test_short_option_with_an_empty_value_after_equals_needs_a_value() -> None:
     assert (result.returncode, result.stdout, result.stderr) == (
         2,
         "",
-        "error: --count needs a value.\n",
+        "error: --count needs a value.\nRun 'greet --help' for usage.\n",
     )
 
 
@@ -795,7 +829,11 @@ def test_conversion_errors_are_reported_next_to_other_errors_of_the_same_option(
     assert (result.returncode, result.stdout, result.stderr) == (
         2,
         "",
-        "error: --number needs a value.\nerror: --number: '1x' isn't a whole number.\n",
+        (
+            "error: --number needs a value.\n"
+            "error: --number: '1x' isn't a whole number.\n"
+            "Run 'sum --help' for usage.\n"
+        ),
     )
 
 
@@ -817,6 +855,7 @@ def test_word_starting_with_a_dash_is_an_option_unless_it_is_a_number(
         (
             f"error: --count needs a value. To pass {word!r}, write --count={word}.\n"
             f"error: unknown option {word!r}.\n"
+            "Run 'echo --help' for usage.\n"
         ),
     )
 
@@ -832,7 +871,10 @@ def test_number_that_isnt_whole_is_a_value_for_an_int_option() -> None:
     assert (result.returncode, result.stdout, result.stderr) == (
         2,
         "",
-        "error: --count: '-1e3' isn't a whole number.\n",
+        (
+            "error: --count: '-1e3' isn't a whole number.\n"
+            "Run 'echo --help' for usage.\n"
+        ),
     )
 
 
@@ -860,19 +902,27 @@ def test_malformed_repeat_is_also_reported_as_given_twice(
     assert (result.returncode, result.stdout, result.stderr) == (
         2,
         "",
-        f"error: {once} can only be given once.\nerror: {error}\n",
+        (
+            f"error: {once} can only be given once.\n"
+            f"error: {error}\n"
+            "Run 'greet --help' for usage.\n"
+        ),
     )
 
 
 @pytest.mark.parametrize(
     ("args", "stderr"),
     [
-        (["--host"], "error: --host needs a value.\n"),
+        (
+            ["--host"],
+            "error: --host needs a value.\nRun 'connect --help' for usage.\n",
+        ),
         (
             ["--host", "-x"],
             (
                 "error: --host needs a value. To pass '-x', write --host=-x.\n"
                 "error: unknown option '-x'.\n"
+                "Run 'connect --help' for usage.\n"
             ),
         ),
     ],
@@ -912,7 +962,10 @@ def test_dash_followed_by_a_non_letter_is_one_unknown_option() -> None:
     assert (result.returncode, result.stdout, result.stderr) == (
         2,
         "",
-        "error: unknown option '-\N{LATIN SMALL LETTER E WITH ACUTE}'.\n",
+        (
+            "error: unknown option '-\N{LATIN SMALL LETTER E WITH ACUTE}'.\n"
+            "Run 'echo --help' for usage.\n"
+        ),
     )
 
 
@@ -932,4 +985,25 @@ def test_trailing_underscore_isnt_part_of_what_users_type() -> None:
         "box there True\n",
         "",
     )
-    assert (missing.returncode, missing.stderr) == (2, "error: CLASS is required.\n")
+    assert (missing.returncode, missing.stderr) == (
+        2,
+        "error: CLASS is required.\nRun 'copy --help' for usage.\n",
+    )
+
+
+def test_attached_equals_value_starting_with_a_dash_suggests_the_long_form() -> None:
+    @command("save")
+    @option("body", "-b")
+    def save(body: str = "") -> str:
+        return body
+
+    result = run(save, ["-b=-h"])
+
+    assert (result.returncode, result.stdout, result.stderr) == (
+        2,
+        "",
+        (
+            "error: Use -b-h or --body=-h instead of -b=-h.\n"
+            "Run 'save --help' for usage.\n"
+        ),
+    )

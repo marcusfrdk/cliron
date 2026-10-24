@@ -4,6 +4,7 @@ import re
 _SNAKE_CASE = re.compile(r"[a-z][a-z0-9]*(?:_[a-z0-9]+)*")
 _WORD = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z0-9]+")
 _SHORT_FLAG = re.compile(r"-[A-Za-z]")
+_LONG_FLAG = re.compile(r"--[a-z][a-z0-9]*(?:-[a-z0-9]+)*")
 
 
 def check_name(name: object, decorator: str) -> str:
@@ -56,6 +57,19 @@ def check_short(short: object) -> str | None:
     if short is None or _SHORT_FLAG.fullmatch(short):
         return short
     message = f"{short!r} isn't a short flag. Use a dash and one letter, such as '-c'."
+    raise ValueError(message)
+
+
+def check_flag(flag: object, context: str) -> str:
+    if not isinstance(flag, str):
+        message = f"{context} takes flags as strings, such as '--help', not {flag!r}."
+        raise TypeError(message)
+    if _SHORT_FLAG.fullmatch(flag) or _LONG_FLAG.fullmatch(flag):
+        return flag
+    message = (
+        f"{flag!r} isn't a flag. Use a dash and one letter, such as '-h', "
+        "or two dashes and a kebab-case name, such as '--help'."
+    )
     raise ValueError(message)
 
 
