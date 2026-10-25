@@ -4,6 +4,7 @@ import os
 import subprocess
 import sys
 from collections.abc import Generator, Mapping
+from pathlib import Path
 
 from cliron._roots import Command, Group, main
 
@@ -13,6 +14,7 @@ def run(
     args: list[str],
     *,
     env: Mapping[str, str] | None = None,
+    input: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """
     Run a CLI in this process, as a test would run it in its own.
@@ -26,6 +28,8 @@ def run(
         process's own, as ``subprocess.run`` takes them. They replace
         ``os.environ`` during the run, which is restored afterwards. ``None``
         keeps the environment as it is.
+    :param input: The text to pipe into the CLI. ``None`` pipes nothing, as
+        when stdin is the null device.
     :returns: The arguments, the exit code, and everything printed to stdout
         and stderr.
     """
@@ -33,6 +37,7 @@ def run(
     stderr = _Capture("backslashreplace")
     with (
         _environment(env),
+        _stdin(input),
         contextlib.redirect_stdout(stdout.stream),
         contextlib.redirect_stderr(stderr.stream),
     ):
@@ -56,6 +61,19 @@ def _environment(env: Mapping[str, str] | None) -> Generator[None]:
     finally:
         os.environ.clear()
         os.environ.update(saved)
+
+
+@contextlib.contextmanager
+def _stdin(text: str | None) -> Generator[None]:
+    with (
+        Path(os.devnull).open(encoding="utf-8") if text is None else io.StringIO(text)
+    ) as stream:
+        saved = sys.stdin
+        sys.stdin = stream
+        try:
+            yield
+        finally:
+            sys.stdin = saved
 
 
 class _Capture:

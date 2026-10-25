@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Annotated, Literal, cast
 
 import pytest
 
-from cliron import argument, command, env, flag, group, option
+from cliron import argument, command, env, flag, group, option, stdin
 from cliron.testing import run, validate
 
 if TYPE_CHECKING:
@@ -68,7 +68,9 @@ def defined_at(kind: str, name: str, line: int) -> str:
 
 
 @BAD_NAMES
-@pytest.mark.parametrize("decorator", [argument, option, flag, env, command, group])
+@pytest.mark.parametrize(
+    "decorator", [argument, option, flag, env, stdin, command, group]
+)
 def test_decorator_rejects_name_that_isnt_snake_case(
     decorator: Callable[[str], Decorated], name: str, message: str
 ) -> None:
@@ -94,7 +96,13 @@ def test_short_flag_must_be_a_dash_and_one_letter(
 
 @pytest.mark.parametrize(
     ("parent", "name"),
-    [(argument, "argument"), (option, "option"), (flag, "flag"), (env, "env")],
+    [
+        (argument, "argument"),
+        (option, "option"),
+        (flag, "flag"),
+        (env, "env"),
+        (stdin, "stdin"),
+    ],
 )
 @pytest.mark.parametrize("root", [command, group])
 def test_parent_decorator_above_root_decorator_is_rejected(
@@ -197,7 +205,13 @@ def test_parameter_without_parent_is_rejected(check: Check) -> None:
 @ENTRY_POINTS
 @pytest.mark.parametrize(
     ("parent", "name"),
-    [(argument, "argument"), (option, "option"), (flag, "flag"), (env, "env")],
+    [
+        (argument, "argument"),
+        (option, "option"),
+        (flag, "flag"),
+        (env, "env"),
+        (stdin, "stdin"),
+    ],
 )
 def test_parent_without_parameter_is_rejected(
     check: Check, parent: Callable[[str], Decorated], name: str
@@ -558,6 +572,7 @@ def test_validate_accepts_a_valid_cli_twice() -> None:
         (option, "option"),
         (flag, "flag"),
         (env, "env"),
+        (stdin, "stdin"),
         (command, "command"),
         (group, "group"),
     ],
@@ -633,7 +648,7 @@ def test_group_cant_be_added_to_a_group_inside_it() -> None:
         inner.add(outer)
 
 
-@pytest.mark.parametrize("decorator", [argument, option, flag, env])
+@pytest.mark.parametrize("decorator", [argument, option, flag, env, stdin])
 def test_parent_name_cant_be_a_python_keyword(
     decorator: Callable[[str], Decorated],
 ) -> None:

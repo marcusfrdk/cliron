@@ -14,6 +14,8 @@
 - Ctrl+C ends a CLI without a traceback, SIGTERM runs cleanup before exiting with 143 unless the program already handles or ignores it, and on Linux and macOS output into a pipe that closes early ends quietly.
 - The `env` decorator fills a parameter from an environment variable, and help lists the variables a command reads under Environment.
 - `cliron.testing.run` takes `env`, the environment variables to run the CLI with in place of the test's own.
+- The `stdin` decorator fills a parameter from piped text, never waits for typing, and gives a list one item per line.
+- `cliron.testing.run` takes `input`, the text to pipe into the CLI.
 
 ### Changed
 

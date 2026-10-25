@@ -1,3 +1,4 @@
+import re
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from operator import itemgetter
@@ -6,7 +7,10 @@ from typing import ClassVar, Protocol
 from cliron._builtin_options import DEFAULT_BUILTINS, Builtins
 from cliron._conversion import NUMBER, Converter
 from cliron._names import token
-from cliron._parents import Argument, Env, Parent, display, flags
+from cliron._parents import Argument, Env, Parent, Stdin, display, flags
+
+_FINAL_LINE_BREAK = re.compile(r"\r?\n\Z")
+_LINE_BREAK = re.compile(r"\r?\n")
 
 
 @dataclass(frozen=True)
@@ -118,27 +122,33 @@ class _Segment:
             error = ValueError(f"unexpected argument {word!r}.")
             self.word_errors.append((position, error))
 
-    def resolve(self, target: Input) -> tuple[object, list[Exception]]:
+    def resolve(self, target: Input, path: str) -> tuple[object, list[Exception]]:
         converter = target.converter
         if converter is None:
             count = self.occurrences.get(target.name, 0)
             return (count if target.counted else count > 0), []
-        if isinstance(target.parent, Env):
-            text = target.parent.read()
+        if isinstance(target.parent, Env | Stdin):
+            try:
+                text = target.parent.read()
+            except UnicodeDecodeError as error:
+                message = (
+                    f"{target.display}: the input isn't valid {error.encoding} text."
+                )
+                return None, [ValueError(message)]
             if text is not None:
-                self.add(target, text)
-        raw = self.raw.get(target.name, [])
-        if not raw:
+                self.raw[target.name] = _words(target, text)
+        raw = self.raw.get(target.name)
+        if raw is None:
             if target.required and target.name not in self.input_errors:
-                return None, [LookupError(_missing(target))]
+                return None, [LookupError(_missing(target, path))]
             return target.default, []
         values: list[object] = []
         problems: list[Exception] = []
-        for word in raw:
+        for line, word in enumerate(raw, start=1):
             try:
                 values.append(converter.convert(word))
             except ValueError as error:
-                problems.append(ValueError(f"{target.display}: {error}"))
+                problems.append(ValueError(f"{_label(target, line)}: {error}"))
         if converter.collect is not None:
             return converter.collect(values), problems
         return (values[0] if values else None), problems
@@ -341,11 +351,12 @@ class _Reader:
     def _resolve(self) -> Parsed:
         path: list[tuple[Node, dict[str, object]]] = []
         errors: list[Exception] = []
-        for segment in self.segments:
+        for index, segment in enumerate(self.segments):
             segment.assign_arguments()
+            command_path = node_path(part.node for part in self.segments[: index + 1])
             values: dict[str, object] = {}
             for target in segment.definition.inputs:
-                values[target.name], problems = segment.resolve(target)
+                values[target.name], problems = segment.resolve(target, command_path)
                 errors.extend(segment.input_errors.get(target.name, []))
                 errors.extend(problems)
             errors.extend(
@@ -359,9 +370,29 @@ def _is_option(word: str) -> bool:
     return word.startswith("-") and word != "-" and not NUMBER.fullmatch(word)
 
 
-def _missing(target: Input) -> str:
+def _words(target: Input, text: str) -> list[str]:
+    if isinstance(target.parent, Env):
+        return [text]
+    text = _FINAL_LINE_BREAK.sub("", text, count=1)
+    if not target.multiple:
+        return [text]
+    return _LINE_BREAK.split(text) if text else []
+
+
+def _label(target: Input, line: int) -> str:
+    if isinstance(target.parent, Stdin) and target.multiple:
+        return f"{target.display}: line {line}"
+    return target.display
+
+
+def _missing(target: Input, path: str) -> str:
     if isinstance(target.parent, Env):
         return f"{target.display} isn't set."
+    if isinstance(target.parent, Stdin):
+        return (
+            f"{target.display}: nothing was piped in. "
+            f"For example: cat file.txt | {path}"
+        )
     return f"{target.display} is required."
 
 

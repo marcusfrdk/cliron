@@ -20,6 +20,7 @@ from cliron._parents import (
     Env,
     Flag,
     Parent,
+    Stdin,
     call,
     display,
     flags,
@@ -68,9 +69,9 @@ class Root:
         :param help_option: The help flags, or ``None`` to inherit them.
         :param version_option: The version, or ``None`` to inherit it.
         :raises TypeError: If ``function`` isn't a function, or a group has an
-            argument.
+            argument or reads stdin.
         :raises ValueError: If two parents share a name, a flag or an
-            environment variable.
+            environment variable, or a command reads stdin twice.
         """
         if not isinstance(function, FunctionType):
             message = f"@{self.kind} must decorate a function."
@@ -142,6 +143,12 @@ class Root:
                     f'Use @option("{parent.name}") instead.'
                 )
                 raise TypeError(message)
+            if isinstance(parent, Stdin) and self.kind == "group":
+                message = (
+                    f"group '{token(self.name)}' can't read stdin. "
+                    f'Use @stdin("{parent.name}") on a command.'
+                )
+                raise TypeError(message)
             other = names.setdefault(parent.name, parent)
             if other is not parent:
                 message = (
@@ -194,11 +201,11 @@ def command(
     """
     Turn a function into a command.
 
-    The ``argument``, ``option``, ``flag`` and ``env`` decorators below this
-    one fill the function's parameters from the command line and the
-    environment, converted to the types of their annotations. What the function
-    returns is printed: nothing for ``None``, a ``str`` as it is, and anything
-    else as JSON.
+    The ``argument``, ``option``, ``flag``, ``env`` and ``stdin`` decorators
+    below this one fill the function's parameters from the command line, the
+    environment and piped input, converted to the types of their annotations.
+    What the function returns is printed: nothing for ``None``, a ``str`` as it
+    is, and anything else as JSON.
 
     :param name: The command's name, in snake_case.
     :param help_flags: The flags that show help. ``True`` takes the enclosing

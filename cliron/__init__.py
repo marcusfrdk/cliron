@@ -3,7 +3,7 @@
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
-    from cliron._parents import argument, env, flag, option
+    from cliron._parents import argument, env, flag, option, stdin
     from cliron._roots import command, group
 
 __all__ = [
@@ -14,6 +14,7 @@ __all__ = [
     "flag",
     "group",
     "option",
+    "stdin",
 ]
 
 __version__: str
@@ -25,6 +26,7 @@ _MODULES = {
     "flag": "cliron._parents",
     "group": "cliron._roots",
     "option": "cliron._parents",
+    "stdin": "cliron._parents",
 }
 
 

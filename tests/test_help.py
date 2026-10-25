@@ -10,7 +10,7 @@ from typing import Literal
 
 import pytest
 
-from cliron import argument, command, env, flag, group, option
+from cliron import argument, command, env, flag, group, option, stdin
 from cliron.testing import run, validate
 
 Check = Callable[..., object]
@@ -2454,7 +2454,13 @@ def test_summary_ends_at_a_line_of_only_spaces() -> None:
 
 @pytest.mark.parametrize(
     ("decorator", "name"),
-    [(argument, "argument"), (option, "option"), (flag, "flag"), (env, "env")],
+    [
+        (argument, "argument"),
+        (option, "option"),
+        (flag, "flag"),
+        (env, "env"),
+        (stdin, "stdin"),
+    ],
 )
 def test_help_that_isnt_a_string_is_rejected(
     decorator: Callable[..., object], name: str
@@ -2811,4 +2817,49 @@ def test_group_with_only_variables_shows_no_options_before_its_command() -> None
         "\n"
         "Environment:\n"
         "  BOX_DB      (default: '')\n"
+    )
+
+
+def test_help_lists_piped_input_under_input() -> None:
+    @command("total")
+    @stdin("numbers", help="Numbers to add.")
+    def total(numbers: list[int]) -> int:
+        """Add up numbers, one per line."""
+        return sum(numbers)
+
+    result = run(total, ["--help"])
+
+    assert result.stdout == (
+        "Usage: total [OPTIONS]\n"
+        "\n"
+        "Add up numbers, one per line.\n"
+        "\n"
+        "Options:\n"
+        "  -h, --help  Show this help and exit.\n"
+        "\n"
+        "Input:\n"
+        "  stdin       Numbers to add. One per line. (required)\n"
+    )
+
+
+def test_input_comes_after_environment_and_shows_choices() -> None:
+    @command("say")
+    @env("voice", help="Who speaks.")
+    @stdin("level", help="How loud.")
+    def say(voice: str = "robot", level: Literal["low", "high"] = "low") -> None:
+        _ = (voice, level)
+
+    result = run(say, ["--help"])
+
+    assert result.stdout == (
+        "Usage: say [OPTIONS]\n"
+        "\n"
+        "Options:\n"
+        "  -h, --help        Show this help and exit.\n"
+        "\n"
+        "Environment:\n"
+        "  VOICE             Who speaks. (default: robot)\n"
+        "\n"
+        "Input:\n"
+        "  stdin [low|high]  How loud. (default: low)\n"
     )

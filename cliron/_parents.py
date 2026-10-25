@@ -1,8 +1,10 @@
 import os
+import stat
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from types import FunctionType
-from typing import ClassVar, TypeVar, cast
+from typing import ClassVar, TextIO, TypeVar, cast
 
 from cliron._names import (
     check_parameter_name,
@@ -51,7 +53,20 @@ class Env:
         return os.environ.get(self.variable) or None
 
 
-Parent = Argument | Option | Flag | Env
+@dataclass(frozen=True)
+class Stdin:
+    decorator: ClassVar[str] = "stdin"
+    name: str
+    help: str | None = None
+
+    def read(self) -> str | None:
+        stream = sys.stdin
+        if stream is None or _is_character_device(stream):
+            return None
+        return stream.read()
+
+
+Parent = Argument | Option | Flag | Env | Stdin
 
 
 def display(parent: Parent) -> str:
@@ -59,6 +74,8 @@ def display(parent: Parent) -> str:
         return placeholder(parent.name)
     if isinstance(parent, Env):
         return f"${parent.variable}"
+    if isinstance(parent, Stdin):
+        return "stdin"
     return long_flag(parent.name)
 
 
@@ -182,6 +199,33 @@ def env(
             _check_help(help, "env"),
         )
     )
+
+
+def stdin(name: str, *, help: str | None = None) -> Callable[[F], F]:
+    """
+    Fill a parameter from the text piped into the program.
+
+    Nothing is read from a terminal, so the program never waits for typing.
+    One final line break is dropped, and a ``list`` or ``tuple`` gets one item
+    per line.
+
+    :param name: The parameter's name, in snake_case.
+    :param help: What the input is for, shown under Input in the help.
+    :returns: A decorator for the function of a command.
+    :raises TypeError: If ``name`` or ``help`` isn't a string.
+    :raises ValueError: If ``name`` isn't snake_case or is a Python keyword.
+    """
+    return _attach(
+        Stdin(check_parameter_name(name, "stdin"), _check_help(help, "stdin"))
+    )
+
+
+def _is_character_device(stream: TextIO) -> bool:
+    try:
+        mode = os.fstat(stream.fileno()).st_mode
+    except (AttributeError, OSError, ValueError):
+        return False
+    return stat.S_ISCHR(mode)
 
 
 def _check_help(help: object, decorator: str) -> str | None:

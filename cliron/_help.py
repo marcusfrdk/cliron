@@ -8,7 +8,7 @@ from typing import TextIO, cast
 from cliron._builtin_options import Builtins
 from cliron._conversion import typed_member
 from cliron._names import placeholder
-from cliron._parents import Env, Flag, Option
+from cliron._parents import Env, Flag, Option, Stdin
 from cliron._parsing import Input, Node, node_path
 
 _MAX_WIDTH = 80
@@ -38,7 +38,10 @@ def render_help(nodes: Sequence[Node], builtins: Builtins, width: int) -> str:
     summary = _summary(node)
     if summary:
         sections.append(_fill(summary, width))
-    arguments = [_argument_row(target) for target in definition.arguments]
+    arguments = [
+        _value_row(_placeholder(target), target, show_required=False)
+        for target in definition.arguments
+    ]
     options = [_option_row(target) for target in _own_options(node)]
     if builtins.version is not None:
         options.append(
@@ -51,12 +54,19 @@ def render_help(nodes: Sequence[Node], builtins: Builtins, width: int) -> str:
         rows = [_option_row(target) for target in _own_options(group)]
         tables.append((f"Options for {node_path(nodes[: index + 1])}", rows))
     environment = [
-        _environment_row(target, target.parent)
+        _value_row(target.parent.variable, target, show_required=True)
         for each in nodes
         for target in each.definition().inputs
         if isinstance(target.parent, Env)
     ]
-    tables.extend([("Environment", environment), ("Commands", commands)])
+    piped = [
+        _value_row(target.display, target, show_required=True)
+        for target in definition.inputs
+        if isinstance(target.parent, Stdin)
+    ]
+    tables.extend(
+        [("Environment", environment), ("Input", piped), ("Commands", commands)]
+    )
     position = _help_position([row for _, rows in tables for row in rows], width)
     for title, rows in tables:
         if rows:
@@ -114,18 +124,10 @@ def _placeholder(target: Input) -> str:
     return placeholder(target.name) + ("..." if target.multiple else "")
 
 
-def _argument_row(target: Input) -> tuple[str, str]:
-    name = _placeholder(target)
+def _value_row(name: str, target: Input, *, show_required: bool) -> tuple[str, str]:
     if target.converter is not None and target.converter.choices:
         name += f" {target.converter.metavar}"
-    return name, _describe(target, show_required=False)
-
-
-def _environment_row(target: Input, parent: Env) -> tuple[str, str]:
-    name = parent.variable
-    if target.converter is not None and target.converter.choices:
-        name += f" {target.converter.metavar}"
-    return name, _describe(target, show_required=True)
+    return name, _describe(target, show_required=show_required)
 
 
 def _option_row(target: Input) -> tuple[str, str]:
@@ -142,7 +144,8 @@ def _option_row(target: Input) -> tuple[str, str]:
 def _describe(target: Input, *, show_required: bool) -> str:
     parts = [_words(target.parent.help or "")]
     if target.multiple or target.counted:
-        parts.append("Repeatable.")
+        piped = isinstance(target.parent, Stdin)
+        parts.append("One per line." if piped else "Repeatable.")
     if target.required:
         parts.append("(required)" if show_required else "")
     elif target.converter is not None:
