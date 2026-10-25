@@ -622,15 +622,13 @@ def _checked(
 
 
 def _check_default(target: Input, children: tuple[AnyChild, ...]) -> None:
-    default = target.default
-    if target.required or default is None:
+    if target.required or target.default is None:
         return
-    several = isinstance(default, list | tuple)
-    items = typing.cast("Sequence[object]", default) if several else (default,)
-    where = "an item of the default" if several else "the default"
-    for item in items:
+    where = "an item of the default" if target.multiple else "the default"
+    checks = [found for found in children if found.default_check == "definition"]
+    for item in target.default_items:
         value = item
-        for found in children:
+        for found in checks:
             try:
                 value = run_child(found, value)
             except ValueError as error:

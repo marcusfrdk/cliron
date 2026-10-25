@@ -2,7 +2,7 @@ import inspect
 import re
 import typing
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from operator import itemgetter
 from types import FunctionType
 from typing import ClassVar, Protocol
@@ -45,6 +45,12 @@ class Input:
     @property
     def multiple(self) -> bool:
         return self.converter is not None and self.converter.collect is not None
+
+    @property
+    def default_items(self) -> tuple[object, ...]:
+        if self.multiple:
+            return tuple(typing.cast("Sequence[object]", self.default))
+        return (self.default,)
 
 
 class Definition:
@@ -166,7 +172,7 @@ class _Segment:
         if raw is None:
             if target.required and target.name not in self.input_errors:
                 return None, [LookupError(_missing(target, path))]
-            return target.default, []
+            return target.default, self._check_default(target)
         values: list[object] = []
         problems: list[Exception] = []
         for line, word in enumerate(raw, start=1):
@@ -181,12 +187,28 @@ class _Segment:
     def _resolve_flag(self, target: Input) -> tuple[object, list[Exception]]:
         count = self.occurrences.get(target.name, 0)
         value: object = count if target.counted else count > 0
-        if count:
-            try:
-                value = _processed(target, value, self.node)
-            except ValueError as error:
-                return value, [ValueError(f"{target.display}: {error}")]
+        if not count:
+            return value, self._check_default(target)
+        try:
+            value = _processed(target, value, self.node)
+        except ValueError as error:
+            return value, [ValueError(f"{target.display}: {error}")]
         return value, []
+
+    def _check_default(self, target: Input) -> list[Exception]:
+        checks = tuple(
+            found for found in target.children if found.default_check == "run"
+        )
+        if not checks or target.default is None:
+            return []
+        checking = replace(target, children=checks)
+        problems: list[Exception] = []
+        for item in target.default_items:
+            try:
+                _ = _processed(checking, item, self.node)
+            except ValueError as error:
+                problems.append(ValueError(f"{target.display}: {error}"))
+        return problems
 
     def _read_outside(self, target: Input) -> Exception | None:
         if not isinstance(target.parent, Env | Stdin):

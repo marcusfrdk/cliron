@@ -23,6 +23,8 @@
 - `Child` and `child` let you write your own children, as a subclass with `process` and `describe` methods or as a function whose other parameters become its options.
 - A first child that takes `str` receives the text as typed, so a parameter can have any type that the child converts the text to.
 - A child that doesn't fit its parameter's type, returns a value of another type or is written without parentheses is reported as a mistake in the definition.
+- The `file` and `directory` decorators check that a path is an existing file or directory, or with `exists=False` that nothing is there yet, and check a default path on each run that uses it.
+- A child class can set `default_check = "run"` to have the default checked on each run that uses it, instead of once with the definition.
 
 ### Changed
 

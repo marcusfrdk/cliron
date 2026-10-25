@@ -9,8 +9,10 @@ from enum import Enum
 from pathlib import Path
 from types import FunctionType
 from typing import (
+    ClassVar,
     Concatenate,
     Generic,
+    Literal,
     Never,
     ParamSpec,
     Protocol,
@@ -48,7 +50,14 @@ class Child(ABC, Generic[In_contra, Out_co]):
     ``Child[int, int]``, implement ``process``, and put an instance right
     below the parent: ``@Even()``. A first child that takes ``str`` gets the
     text from the command line, so it can convert it.
+
+    :cvar default_check: When cliron runs the child on the parameter's
+        default: ``"definition"`` checks it once, with the CLI's definition, and
+        ``"run"`` checks it on each run that uses it, for a child whose answer
+        depends on more than the value, such as on the files that exist.
     """
+
+    default_check: ClassVar[Literal["definition", "run"]] = "definition"
 
     @abstractmethod
     def process(self, value: In_contra, /) -> Out_co:
