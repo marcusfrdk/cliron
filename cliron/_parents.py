@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from types import FunctionType
 from typing import ClassVar, TextIO
 
+from cliron._children import AnyChild, Child, check_below
 from cliron._names import (
     check_parameter_name,
     check_short,
@@ -96,8 +97,27 @@ def parents_of(function: FunctionType) -> tuple[Parent, ...]:
     )
 
 
+def children_of(function: FunctionType) -> dict[str, tuple[AnyChild, ...]]:
+    attached: dict[str, list[AnyChild]] = {}
+    current: str | None = None
+    for record in nodes_of(function):
+        if isinstance(record, PARENT_KINDS):
+            current = record.name
+            _ = attached.setdefault(current, [])
+        if isinstance(record, Child):
+            if current is None:
+                message = (
+                    f"@{record!r} is above every parent, so it has nothing to "
+                    "check. Put it right below the parent whose value it checks."
+                )
+                raise TypeError(message)
+            attached[current].append(record)
+    return {name: tuple(children) for name, children in attached.items()}
+
+
 def _attach(parent: Parent) -> Callable[[F], F]:
     def decorate(function: F) -> F:
+        check_below(function, parent.decorator)
         store(parent, function, parent.decorator)
         return function
 

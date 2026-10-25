@@ -20,6 +20,9 @@
 - `cliron.testing.validate` reports dependencies that contradict or repeat each other.
 - A mistake in a CLI's definition that is found when it runs is printed as an error that says where the mistake is, instead of a traceback, and exits with 1.
 - The `between`, `choices`, `length` and `matches` decorators check a parameter's value below its parent, and help shows what they accept.
+- `Child` and `child` let you write your own children, as a subclass with `process` and `describe` methods or as a function whose other parameters become its options.
+- A first child that takes `str` receives the text as typed, so a parameter can have any type that the child converts the text to.
+- A child that doesn't fit its parameter's type, returns a value of another type or is written without parentheses is reported as a mistake in the definition.
 
 ### Changed
 

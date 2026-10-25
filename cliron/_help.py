@@ -173,7 +173,7 @@ def _option_row(target: Input) -> tuple[str, str]:
 def _describe(target: Input, *, show_required: bool) -> str:
     parts = [_words(target.parent.help or "")]
     parts.extend(
-        sentence for child in target.children if (sentence := child.sentence())
+        sentence for child in target.children if (sentence := child.describe())
     )
     if target.multiple or target.counted:
         piped = isinstance(target.parent, Stdin)

@@ -74,6 +74,45 @@ def _scalar(annotation: object) -> Converter | None:
     return None
 
 
+def text_converter(annotation: object, known: Converter | None) -> Converter:
+    base = value_type(annotation)
+    if known is not None:
+        metavar = known.metavar
+    elif isinstance(base, type):
+        metavar = base.__name__.upper()
+    else:
+        metavar = "VALUE"
+    return Converter(_to_str, metavar, _collector(annotation))
+
+
+def _collector(annotation: object) -> Callable[[list[object]], object] | None:
+    origin: object = typing.get_origin(annotation)
+    arguments: tuple[object, ...] = typing.get_args(annotation)
+    if _is_union(origin):
+        return _collector(next(item for item in arguments if item is not NoneType))
+    if origin is list:
+        return list
+    if origin is tuple:
+        return tuple
+    return None
+
+
+def fits_value(value: object, annotation: object) -> bool:
+    origin: object = typing.get_origin(annotation)
+    arguments: tuple[object, ...] = typing.get_args(annotation)
+    if _is_union(origin):
+        return any(fits_value(value, item) for item in arguments)
+    if origin is typing.Literal:
+        return value in arguments
+    if not isinstance(annotation, type):
+        return True
+    if isinstance(value, bool) and annotation is not bool:
+        return False
+    if annotation is float:
+        return isinstance(value, int | float)
+    return isinstance(value, annotation)
+
+
 def value_type(annotation: object) -> object:
     origin: object = typing.get_origin(annotation)
     arguments: tuple[object, ...] = typing.get_args(annotation)

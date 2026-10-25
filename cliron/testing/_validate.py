@@ -1,6 +1,7 @@
 from cliron._builtin_options import DEFAULT_BUILTINS, Builtins
 from cliron._dependencies import check_combinations
-from cliron._roots import Command, Group, location
+from cliron._parsing import location
+from cliron._roots import Command, Group
 
 
 def validate(cli: Command | Group) -> None:

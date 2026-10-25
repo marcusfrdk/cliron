@@ -79,11 +79,11 @@ def name(
     ("args", "error"),
     [
         (["-k", "1", "-w", "1", "--percent", "100", "--ratio", "1"], None),
-        (["-k", "0"], "--keep: '0' isn't between 1 and 100."),
-        (["-k", "101"], "--keep: '101' isn't between 1 and 100."),
-        (["-w", "0"], "--workers: '0' is less than 1."),
-        (["--percent", "101"], "--percent: '101' is more than 100."),
-        (["--ratio", "1.5"], "--ratio: '1.5' isn't between 0 and 1."),
+        (["-k", "0"], "--keep: 0 isn't between 1 and 100."),
+        (["-k", "101"], "--keep: 101 isn't between 1 and 100."),
+        (["-w", "0"], "--workers: 0 is less than 1."),
+        (["--percent", "101"], "--percent: 101 is more than 100."),
+        (["--ratio", "1.5"], "--ratio: 1.5 isn't between 0 and 1."),
     ],
 )
 def test_between(args: list[str], error: str | None) -> None:
@@ -204,7 +204,7 @@ def test_choices_narrows_a_literal_and_checks_numbers() -> None:
     assert run(pick, ["--level", "2", "--ratio", "0.5"]).stdout == "fast 2 0.5\n"
     assert run(pick, ["--mode", "slow", "--level", "3"]).stderr == (
         "error: --mode: 'slow' isn't one of fast.\n"
-        "error: --level: '3' isn't one of 1, 2.\n"
+        "error: --level: 3 isn't one of 1, 2.\n"
         "Run 'pick --help' for usage.\n"
     )
 
@@ -228,21 +228,21 @@ def test_choices_of_paths() -> None:
             (START, END),
             "2026-10-25",
             "2019-12-31",
-            "'2019-12-31' isn't between 2020-01-01 and 2030-12-31.",
+            "2019-12-31 isn't between 2020-01-01 and 2030-12-31.",
         ),
         (
             datetime,
             (datetime.fromisoformat("2020-01-01 09:00"), None),
             "2026-10-25 10:00",
             "2019-01-01 10:00",
-            "'2019-01-01 10:00' is less than 2020-01-01 09:00:00.",
+            "2019-01-01 10:00:00 is less than 2020-01-01 09:00:00.",
         ),
         (
             time,
             (None, time(17)),
             "09:30",
             "18:00",
-            "'18:00' is more than 17:00:00.",
+            "18:00:00 is more than 17:00:00.",
         ),
     ],
 )
@@ -277,10 +277,10 @@ def test_children_check_each_item_and_each_line_of_stdin() -> None:
     result = run(total, ["--weight", "0", "--weight", "11"], input="1\n-2\n3\n-4\n")
 
     assert result.stderr == (
-        "error: --weight: '0' isn't between 1 and 10.\n"
-        "error: --weight: '11' isn't between 1 and 10.\n"
-        "error: stdin: line 2: '-2' is less than 0.\n"
-        "error: stdin: line 4: '-4' is less than 0.\n"
+        "error: --weight: 0 isn't between 1 and 10.\n"
+        "error: --weight: 11 isn't between 1 and 10.\n"
+        "error: stdin: line 2: -2 is less than 0.\n"
+        "error: stdin: line 4: -4 is less than 0.\n"
         "Run 'sum --help' for usage.\n"
     )
 
@@ -297,8 +297,8 @@ def test_children_follow_the_inputs_label() -> None:
     result = run(pick, ["9"], env={"LEVEL": "7"})
 
     assert result.stderr == (
-        "error: COUNT: '9' isn't between 1 and 5.\n"
-        "error: $LEVEL: '7' isn't between 1 and 3.\n"
+        "error: COUNT: 9 isn't between 1 and 5.\n"
+        "error: $LEVEL: 7 isn't between 1 and 3.\n"
         "Run 'pick --help' for usage.\n"
     )
 
@@ -340,22 +340,22 @@ def test_several_children_run_top_down_and_stop_at_the_first_problem() -> None:
         (
             lambda: _one(between(1, 100), int, 0),
             (
-                "parameter 'value' defaults to 0, which isn't between 1 and 100. "
-                "Change the default or the bounds."
+                "@between(1, 100) rejects the default of parameter 'value': "
+                "0 isn't between 1 and 100. Change one of them."
             ),
         ),
         (
             lambda: _one(matches("[a-z]+"), str, "My Label"),
             (
-                "parameter 'value' defaults to 'My Label', which doesn't match [a-z]+. "
-                "Change the default or the pattern."
+                "@matches(\"[a-z]+\") rejects the default of parameter 'value': "
+                "'My Label' doesn't match [a-z]+. Change one of them."
             ),
         ),
         (
             lambda: _one(choices("a", "b"), tuple[str, ...], ("a", "c")),
             (
-                "parameter 'value' has 'c' in its default, which isn't one of a, b. "
-                "Change the default or the choices."
+                '@choices("a", "b") rejects an item of the default of '
+                "parameter 'value': 'c' isn't one of a, b. Change one of them."
             ),
         ),
     ],
@@ -592,7 +592,9 @@ def test_a_child_above_the_root_decorator_is_rejected() -> None:
     @command("pick")
     def pick() -> None: ...
 
-    message = "@length must decorate a function, so it goes below @command or @group."
+    message = (
+        "@length(low=3) must decorate a function, so it goes below @command or @group."
+    )
     with pytest.raises(TypeError, match=exactly(message)):
         _ = length(3)(pick)
 

@@ -268,7 +268,8 @@ def test_unsupported_type_is_rejected(
     cli = command("greet")(greet)
     message = (
         f"parameter 'value' has the type {description}, "
-        f"which cliron can't convert. Use {SUPPORTED}."
+        f"which cliron can't convert. Use {SUPPORTED}, or convert the text "
+        "with a child that takes str."
     )
     with pytest.raises(TypeError, match=exactly(message)):
         _ = check(cli)

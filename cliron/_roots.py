@@ -13,8 +13,21 @@ from cliron._builtin_options import (
     help_option_for,
     version_option_for,
 )
-from cliron._children import Child, Choices, children_of
-from cliron._conversion import SUPPORTED, converter_for, describe, shown, value_type
+from cliron._children import (
+    AnyChild,
+    Choices,
+    check_below,
+    converts,
+    misfit,
+    run_child,
+)
+from cliron._conversion import (
+    SUPPORTED,
+    converter_for,
+    describe,
+    text_converter,
+    value_type,
+)
 from cliron._dependencies import Dependency, cycle_problem, dependencies_for
 from cliron._help import render_help, terminal_width, usage_hint
 from cliron._names import (
@@ -31,11 +44,20 @@ from cliron._parents import (
     Parent,
     Stdin,
     call,
+    children_of,
     display,
     flags,
     parents_of,
 )
-from cliron._parsing import Definition, Input, MistakeError, Node, Request, parse
+from cliron._parsing import (
+    Definition,
+    Input,
+    MistakeError,
+    Node,
+    Request,
+    location,
+    parse,
+)
 from cliron._signals import finish
 
 _UNSUPPORTED_KINDS = {
@@ -85,6 +107,7 @@ class Root:
             environment variable, a command reads stdin twice, or a dependency
             names an input the function doesn't have.
         """
+        check_below(function, self.kind)
         if not isinstance(function, FunctionType):
             message = (
                 f"@{self.kind} must decorate a function. Put it directly above a def."
@@ -93,7 +116,7 @@ class Root:
         self.name: str = name
         self.function: FunctionType = function
         self.parents: tuple[Parent, ...] = parents_of(function)
-        self.children: dict[str, tuple[Child, ...]] = children_of(function)
+        self.children: dict[str, tuple[AnyChild, ...]] = children_of(function)
         self.help_option: HelpOption | None = help_option
         self.version_option: VersionOption | None = version_option
         self.dependencies: tuple[Dependency, ...] = tuple(dependencies)
@@ -447,16 +470,6 @@ def _define(root: Root) -> Definition:
     return definition
 
 
-def location(root: Node) -> str:
-    original = typing.cast("object", inspect.unwrap(root.function))
-    function = original if isinstance(original, FunctionType) else root.function
-    code = typing.cast("FunctionType", function).__code__
-    return (
-        f"in {root.kind} '{token(root.name)}', "
-        f"defined at {code.co_filename}:{code.co_firstlineno}"
-    )
-
-
 def _inputs(root: Root) -> list[Input]:
     function = root.function
     if inspect.iscoroutinefunction(function) or inspect.isasyncgenfunction(function):
@@ -522,7 +535,7 @@ def _input(
     parent: Parent,
     parameter: inspect.Parameter | None,
     hints: dict[str, object],
-    children: tuple[Child, ...],
+    children: tuple[AnyChild, ...],
 ) -> Input:
     if parameter is None:
         message = (
@@ -538,7 +551,8 @@ def _input(
     annotation = hints[parent.name]
     default = typing.cast("object", parameter.default)
     if isinstance(parent, Flag):
-        return _checked(_flag(parent, annotation, default), annotation, children)
+        flag_input = _flag(parent, annotation, default)
+        return _checked(flag_input, annotation, children, converting=False)
     if annotation is bool:
         if isinstance(parent, Env):
             message = (
@@ -551,11 +565,15 @@ def _input(
                 f"parameter '{parent.name}' is a bool. Use @flag(\"{parent.name}\")."
             )
         raise TypeError(message)
+    converting = converts(children, annotation)
     converter = converter_for(annotation)
-    if converter is None:
+    if converting:
+        converter = text_converter(annotation, converter)
+    elif converter is None:
         message = (
             f"parameter '{parent.name}' has the type {describe(annotation)}, "
-            f"which cliron can't convert. Use {SUPPORTED}."
+            f"which cliron can't convert. Use {SUPPORTED}, or convert the text "
+            "with a child that takes str."
         )
         raise TypeError(message)
     if isinstance(parent, Env) and converter.collect is not None:
@@ -568,53 +586,59 @@ def _input(
     target = Input(
         parent, converter, default=None if required else default, required=required
     )
-    return _checked(target, annotation, children)
+    return _checked(target, annotation, children, converting=converting)
 
 
-def _checked(target: Input, annotation: object, children: tuple[Child, ...]) -> Input:
+def _checked(
+    target: Input,
+    annotation: object,
+    children: tuple[AnyChild, ...],
+    *,
+    converting: bool,
+) -> Input:
     base = value_type(annotation)
-    for child in children:
+    checked_children = children[1:] if converting else children
+    for found in checked_children:
         if base is bool:
             message = (
-                f"{child.call} is below {call(target.parent)}, a bool, "
+                f"@{found!r} is below {call(target.parent)}, a bool, "
                 "which has nothing to check. Remove it."
             )
             raise TypeError(message)
-        misfit = child.misfit(base, target.name)
-        if misfit is not None:
-            raise TypeError(misfit)
+        problem = misfit(found, base, target.name)
+        if problem is not None:
+            raise TypeError(problem)
     converter = target.converter
     listed = next((child for child in children if isinstance(child, Choices)), None)
     if converter is not None and listed is not None:
         converter = replace(
             converter, metavar=f"[{'|'.join(listed.labels)}]", choices=listed.labels
         )
-    checked = replace(target, converter=converter, children=children)
-    _check_default(checked)
+    collected = converter is not None and converter.collect is not None
+    accepts = base if collected else annotation
+    checked = replace(target, converter=converter, children=children, accepts=accepts)
+    _check_default(checked, checked_children)
     return checked
 
 
-def _check_default(target: Input) -> None:
+def _check_default(target: Input, children: tuple[AnyChild, ...]) -> None:
     default = target.default
     if target.required or default is None:
         return
     several = isinstance(default, list | tuple)
     items = typing.cast("Sequence[object]", default) if several else (default,)
-    for child in target.children:
-        for item in items:
-            problem = child.problem(item)
-            if problem is not None:
-                shown_item = repr(item) if isinstance(item, str) else shown(item)
-                where = (
-                    f"has {shown_item} in its default"
-                    if several
-                    else f"defaults to {shown_item}"
-                )
+    where = "an item of the default" if several else "the default"
+    for item in items:
+        value = item
+        for found in children:
+            try:
+                value = run_child(found, value)
+            except ValueError as error:
                 message = (
-                    f"parameter '{target.name}' {where}, which {problem}. "
-                    f"Change the default or the {child.noun}."
+                    f"@{found!r} rejects {where} of parameter '{target.name}': "
+                    f"{error} Change one of them."
                 )
-                raise ValueError(message)
+                raise ValueError(message) from None
 
 
 def _flag(parent: Flag, annotation: object, default: object) -> Input:

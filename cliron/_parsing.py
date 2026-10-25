@@ -1,12 +1,15 @@
+import inspect
 import re
+import typing
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from operator import itemgetter
+from types import FunctionType
 from typing import ClassVar, Protocol
 
 from cliron._builtin_options import DEFAULT_BUILTINS, Builtins
-from cliron._children import Child, first_problem
-from cliron._conversion import NUMBER, Converter
+from cliron._children import AnyChild, run_child
+from cliron._conversion import NUMBER, Converter, describe, fits_value
 from cliron._dependencies import Dependency, Given
 from cliron._names import closest, token
 from cliron._parents import Argument, Env, Parent, Stdin, display, flags
@@ -28,7 +31,8 @@ class Input:
     default: object = None
     required: bool = False
     counted: bool = False
-    children: tuple[Child, ...] = ()
+    children: tuple[AnyChild, ...] = ()
+    accepts: object = None
 
     @property
     def name(self) -> str:
@@ -167,7 +171,7 @@ class _Segment:
         problems: list[Exception] = []
         for line, word in enumerate(raw, start=1):
             try:
-                values.append(_value(target, converter, word))
+                values.append(_value(target, converter, word, self.node))
             except ValueError as error:
                 problems.append(ValueError(f"{_label(target, line)}: {error}"))
         if converter.collect is not None:
@@ -176,11 +180,13 @@ class _Segment:
 
     def _resolve_flag(self, target: Input) -> tuple[object, list[Exception]]:
         count = self.occurrences.get(target.name, 0)
-        value = count if target.counted else count > 0
-        problem = first_problem(target.children, value) if count else None
-        if problem is None:
-            return value, []
-        return value, [ValueError(f"{target.display}: {count} {problem}.")]
+        value: object = count if target.counted else count > 0
+        if count:
+            try:
+                value = _processed(target, value, self.node)
+            except ValueError as error:
+                return value, [ValueError(f"{target.display}: {error}")]
+        return value, []
 
     def _read_outside(self, target: Input) -> Exception | None:
         if not isinstance(target.parent, Env | Stdin):
@@ -418,13 +424,34 @@ def _is_option(word: str) -> bool:
     return word.startswith("-") and word != "-" and not NUMBER.fullmatch(word)
 
 
-def _value(target: Input, converter: Converter, word: str) -> object:
-    value = converter.convert(word)
-    problem = first_problem(target.children, value)
-    if problem is not None:
-        message = f"{word!r} {problem}."
-        raise ValueError(message)
+def _value(target: Input, converter: Converter, word: str, node: Node) -> object:
+    return _processed(target, converter.convert(word), node)
+
+
+def _processed(target: Input, value: object, node: Node) -> object:
+    for found in target.children:
+        value = run_child(found, value)
+    if target.children and not fits_value(value, target.accepts):
+        what = "None" if value is None else type(value).__name__
+        expected = describe(target.accepts)
+        message = (
+            f"@{target.children[-1]!r} returned {what}, but parameter "
+            f"'{target.name}' has the type {expected}. Make it return {expected}."
+        )
+        error = TypeError(message)
+        error.add_note(location(node))
+        raise MistakeError(error)
     return value
+
+
+def location(root: Node) -> str:
+    original = typing.cast("object", inspect.unwrap(root.function))
+    function = original if isinstance(original, FunctionType) else root.function
+    code = typing.cast("FunctionType", function).__code__
+    return (
+        f"in {root.kind} '{token(root.name)}', "
+        f"defined at {code.co_filename}:{code.co_firstlineno}"
+    )
 
 
 def _words(target: Input, text: str) -> list[str]:

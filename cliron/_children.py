@@ -1,15 +1,32 @@
+import inspect
 import re
 import typing
+from abc import ABC, abstractmethod
 from collections.abc import Callable, Collection
 from dataclasses import dataclass
 from datetime import date, datetime, time
 from enum import Enum
+from pathlib import Path
 from types import FunctionType
-from typing import ClassVar, Protocol, Self
+from typing import (
+    Concatenate,
+    Generic,
+    Never,
+    ParamSpec,
+    Protocol,
+    Self,
+    TypeVar,
+    final,
+)
 
-from cliron._conversion import describe, shown
-from cliron._nodes import F, nodes_of, store
-from cliron._parents import PARENT_KINDS
+from cliron._conversion import describe, shown, value_type
+from cliron._nodes import F, store
+
+In_contra = TypeVar("In_contra", contravariant=True)
+Out_co = TypeVar("Out_co", covariant=True)
+T = TypeVar("T")
+R = TypeVar("R")
+P = ParamSpec("P")
 
 Bound = int | float | date | time
 
@@ -23,137 +40,187 @@ class _Ordered(Protocol):
     def __lt__(self, other: Self, /) -> bool: ...
 
 
-@dataclass(frozen=True)
-class Between:
-    decorator: ClassVar[str] = "between"
-    noun: ClassVar[str] = "bounds"
+class Child(ABC, Generic[In_contra, Out_co]):
+    """
+    A node that checks or changes the value of the parent above it.
+
+    Subclass it with the types it takes and returns, such as
+    ``Child[int, int]``, implement ``process``, and put an instance right
+    below the parent: ``@Even()``. A first child that takes ``str`` gets the
+    text from the command line, so it can convert it.
+    """
+
+    @abstractmethod
+    def process(self, value: In_contra, /) -> Out_co:
+        """
+        Check or change a value.
+
+        :param value: The parent's value, or the text from the command line
+            for a first child that takes ``str``.
+        :returns: The value passed on to the next child or the function.
+        :raises ValueError: If the value isn't valid, with a message that says
+            why, such as ``"3 isn't even."``.
+        """
+
+    def describe(self) -> str | None:
+        """
+        Describe what this child accepts, for the help.
+
+        :returns: A sentence added to the parameter's help, or ``None`` for
+            nothing.
+        """
+        return None
+
+    @final
+    def __call__(self, function: F) -> F:
+        """
+        Attach this child to the parent right above it.
+
+        :param function: The function of a command or group.
+        :returns: The same function.
+        :raises TypeError: If ``function`` isn't a function.
+        """
+        check_below(function, repr(self))
+        store(self, function, repr(self))
+        return function
+
+    def __repr__(self) -> str:
+        """
+        Show the child as it is written below its parent, without the ``@``.
+
+        :returns: The class name and parentheses, such as ``Even()``.
+        """
+        return f"{type(self).__qualname__}()"
+
+
+AnyChild = Child[Never, object]
+
+
+@dataclass(frozen=True, repr=False)
+class Between(Child[Bound, Bound]):
     low: Bound | None
     high: Bound | None
 
-    @property
-    def call(self) -> str:
-        return _bounds_call("between", repr(self.low), repr(self.high), self)
+    def process(self, value: Bound, /) -> Bound:
+        below = self.low is not None and _less(value, self.low)
+        above = self.high is not None and _less(self.high, value)
+        if not (below or above):
+            return value
+        if self.low is not None and self.high is not None:
+            problem = f"isn't between {shown(self.low)} and {shown(self.high)}"
+        elif below:
+            problem = f"is less than {shown(self.low)}"
+        else:
+            problem = f"is more than {shown(self.high)}"
+        message = f"{_shown_value(value)} {problem}."
+        raise ValueError(message)
 
-    def sentence(self) -> str | None:
+    def describe(self) -> str | None:
         if self.low is not None and self.high is not None:
             return f"{shown(self.low)} to {shown(self.high)}."
         if self.low is not None:
             return f"At least {shown(self.low)}."
         return f"At most {shown(self.high)}."
 
-    def problem(self, value: object) -> str | None:
-        below = self.low is not None and _less(value, self.low)
-        above = self.high is not None and _less(self.high, value)
-        if not (below or above):
-            return None
-        if self.low is not None and self.high is not None:
-            return f"isn't between {shown(self.low)} and {shown(self.high)}"
-        if below:
-            return f"is less than {shown(self.low)}"
-        return f"is more than {shown(self.high)}"
-
     def misfit(self, base: object, name: str) -> str | None:
         if base not in _BOUNDED:
             return (
-                f"{self.call} checks numbers, dates or times, "
+                f"@{self!r} checks numbers, dates or times, "
                 f"but parameter {name!r} has the type {describe(base)}."
             )
         for bound in (self.low, self.high):
             if bound is not None and not _bound_fits(bound, base):
                 return (
-                    f"{self.call} has {type(bound).__name__} bounds, but parameter "
+                    f"@{self!r} has {type(bound).__name__} bounds, but parameter "
                     f"{name!r} has the type {describe(base)}. "
                     f"Use {describe(base)} bounds."
                 )
         return None
 
+    def __repr__(self) -> str:
+        return _bounds_text("between", repr(self.low), repr(self.high), self)
 
-@dataclass(frozen=True)
-class Length:
-    decorator: ClassVar[str] = "length"
-    noun: ClassVar[str] = "bounds"
+
+@dataclass(frozen=True, repr=False)
+class Length(Child[str, str]):
     low: int | None
     high: int | None
 
-    @property
-    def call(self) -> str:
-        return _bounds_call("length", str(self.low), str(self.high), self)
+    def process(self, value: str, /) -> str:
+        size = len(value)
+        short = self.low is not None and size < self.low
+        long = self.high is not None and size > self.high
+        if not (short or long):
+            return value
+        if self.low is not None and self.high is not None:
+            problem = f"isn't between {self.low} and {self.high} characters long"
+        elif short:
+            problem = f"is shorter than {_characters(self.low)}"
+        else:
+            problem = f"is longer than {_characters(self.high)}"
+        message = f"{value!r} {problem}."
+        raise ValueError(message)
 
-    def sentence(self) -> str | None:
+    def describe(self) -> str | None:
         if self.low is not None and self.high is not None:
             return f"{self.low} to {self.high} characters."
         if self.low is not None:
             return f"At least {_characters(self.low)}."
         return f"At most {_characters(self.high)}."
 
-    def problem(self, value: object) -> str | None:
-        size = len(typing.cast("str", value))
-        short = self.low is not None and size < self.low
-        long = self.high is not None and size > self.high
-        if not (short or long):
-            return None
-        if self.low is not None and self.high is not None:
-            return f"isn't between {self.low} and {self.high} characters long"
-        if short:
-            return f"is shorter than {_characters(self.low)}"
-        return f"is longer than {_characters(self.high)}"
-
     def misfit(self, base: object, name: str) -> str | None:
-        return _text_misfit(self.call, base, name)
+        return _text_misfit(self, base, name)
+
+    def __repr__(self) -> str:
+        return _bounds_text("length", str(self.low), str(self.high), self)
 
 
-@dataclass(frozen=True)
-class Matches:
-    decorator: ClassVar[str] = "matches"
-    noun: ClassVar[str] = "pattern"
+@dataclass(frozen=True, repr=False)
+class Matches(Child[str, str]):
     pattern: re.Pattern[str]
 
-    @property
-    def call(self) -> str:
-        return f'@matches("{self.pattern.pattern}")'
+    def process(self, value: str, /) -> str:
+        if self.pattern.fullmatch(value):
+            return value
+        message = f"{value!r} doesn't match {self.pattern.pattern}."
+        raise ValueError(message)
 
-    def sentence(self) -> str | None:
+    def describe(self) -> str | None:
         return f"Must match {self.pattern.pattern}."
 
-    def problem(self, value: object) -> str | None:
-        if self.pattern.fullmatch(typing.cast("str", value)):
-            return None
-        return f"doesn't match {self.pattern.pattern}"
-
     def misfit(self, base: object, name: str) -> str | None:
-        return _text_misfit(self.call, base, name)
+        return _text_misfit(self, base, name)
+
+    def __repr__(self) -> str:
+        return f'matches("{self.pattern.pattern}")'
 
 
-@dataclass(frozen=True)
-class Choices:
-    decorator: ClassVar[str] = "choices"
-    noun: ClassVar[str] = "choices"
+@dataclass(frozen=True, repr=False)
+class Choices(Child[object, object]):
     values: tuple[object, ...]
-    call: str
+    text: str
     source: type[Enum] | None = None
 
     @property
     def labels(self) -> tuple[str, ...]:
         return tuple(shown(value) for value in self.values)
 
-    def sentence(self) -> str | None:
-        return None
-
-    def problem(self, value: object) -> str | None:
+    def process(self, value: object, /) -> object:
         if value in self.values:
-            return None
-        return f"isn't one of {', '.join(self.labels)}"
+            return value
+        message = f"{_shown_value(value)} isn't one of {', '.join(self.labels)}."
+        raise ValueError(message)
 
     def misfit(self, base: object, name: str) -> str | None:
         source = self.source
         if source is not None:
             if base is source:
                 return (
-                    f"{self.call} allows every member of {source.__qualname__}, "
+                    f"@{self!r} allows every member of {source.__qualname__}, "
                     "which the annotation already does. Remove it."
                 )
             return (
-                f"{self.call} lists members of {source.__qualname__}, but parameter "
+                f"@{self!r} lists members of {source.__qualname__}, but parameter "
                 f"{name!r} has the type {describe(base)}. "
                 f"Annotate it as {source.__qualname__} instead."
             )
@@ -163,21 +230,88 @@ class Choices:
                 if value not in literals:
                     allowed = ", ".join(repr(literal) for literal in literals)
                     return (
-                        f"{self.call} lists {value!r}, but parameter {name!r} "
+                        f"@{self!r} lists {value!r}, but parameter {name!r} "
                         f"only takes {allowed}."
                     )
             elif not _value_fits(value, base):
                 return (
-                    f"{self.call} lists {value!r}, a {type(value).__name__}, but "
+                    f"@{self!r} lists {value!r}, a {type(value).__name__}, but "
                     f"parameter {name!r} has the type {describe(base)}. "
                     f"Use {describe(base)} values."
                 )
         return None
 
+    def __repr__(self) -> str:
+        return self.text
 
-Child = Between | Length | Matches | Choices
 
-CHILD_KINDS = (Between, Length, Matches, Choices)
+BUILT_IN_KINDS = (Between, Length, Matches, Choices)
+
+
+@dataclass(frozen=True, repr=False)
+class FunctionChild(Child[T, R]):
+    function: Callable[..., R]
+    name: str
+    arguments: tuple[object, ...]
+    keywords: tuple[tuple[str, object], ...]
+
+    def process(self, value: T, /) -> R:
+        return self.function(value, *self.arguments, **dict(self.keywords))
+
+    def __repr__(self) -> str:
+        shown_arguments = [repr(argument) for argument in self.arguments]
+        shown_arguments += [f"{key}={value!r}" for key, value in self.keywords]
+        return f"{self.name}({', '.join(shown_arguments)})"
+
+
+def child(function: Callable[Concatenate[T, P], R]) -> Callable[P, Child[T, R]]:
+    """
+    Turn a function into a child that checks or changes a parent's value.
+
+    The function takes the value first, and its other parameters become the
+    child's options: ``def slug(value: str, separator: str = "-") -> str`` is
+    used as ``@slug()`` or ``@slug(separator="_")`` right below a parent. It
+    returns the value passed on, or raises ``ValueError`` with a message that
+    says why the value isn't valid.
+
+    :param function: The function, which takes the value as its first
+        parameter.
+    :returns: A function that takes the options and returns the child.
+    :raises TypeError: If ``function`` isn't a function, or doesn't take the
+        value as its first parameter.
+    """
+    if not isinstance(function, FunctionType):
+        message = (
+            f"@child must decorate a function, such as def slug(value: str) -> str, "
+            f"not {function!r}."
+        )
+        raise TypeError(message)
+    name = function.__name__
+    signature = inspect.signature(function)
+    first = next(iter(signature.parameters.values()), None)
+    if first is None or first.kind not in {
+        inspect.Parameter.POSITIONAL_ONLY,
+        inspect.Parameter.POSITIONAL_OR_KEYWORD,
+    }:
+        message = (
+            f"@child function '{name}' must take the value as its first "
+            f"parameter, such as def {name}(value: str) -> str."
+        )
+        raise TypeError(message)
+
+    def options(*arguments: P.args, **keywords: P.kwargs) -> Child[T, R]:
+        try:
+            _ = signature.bind(None, *arguments, **keywords)
+        except TypeError as error:
+            bare = len(arguments) == 1 and isinstance(arguments[0], FunctionType)
+            if bare and not keywords:
+                message = f"@{name} needs parentheses: @{name}()."
+            else:
+                message = f"@{name}: {error}."
+            raise TypeError(message) from None
+        return FunctionChild(function, name, arguments, tuple(keywords.items()))
+
+    return options
 
 
 def between(
@@ -208,13 +342,13 @@ def between(
     if low is not None and high is not None:
         if _kind(low) != _kind(high):
             message = (
-                f"{found.call} mixes bound types. "
+                f"@{found!r} mixes bound types. "
                 "Use two numbers, two dates or two times."
             )
             raise TypeError(message)
         if _less(high, low):
-            _wrong_way_round(found.call, Between(high, low).call)
-    return _attach(found)
+            _wrong_way_round(found, Between(high, low))
+    return found
 
 
 def length(low: int | None = None, high: int | None = None) -> Callable[[F], F]:
@@ -239,8 +373,8 @@ def length(low: int | None = None, high: int | None = None) -> Callable[[F], F]:
         message = "@length needs a bound, such as @length(3, 20) or @length(low=1)."
         raise TypeError(message)
     if low is not None and high is not None and high < low:
-        _wrong_way_round(found.call, Length(high, low).call)
-    return _attach(found)
+        _wrong_way_round(found, Length(high, low))
+    return found
 
 
 def matches(pattern: str) -> Callable[[F], F]:
@@ -259,7 +393,7 @@ def matches(pattern: str) -> Callable[[F], F]:
     except re.error as error:
         message = f'@matches("{text}") isn\'t a valid pattern: {error}.'
         raise ValueError(message) from None
-    return _attach(Matches(compiled))
+    return Matches(compiled)
 
 
 def choices(*values: object) -> Callable[[F], F]:
@@ -278,41 +412,61 @@ def choices(*values: object) -> Callable[[F], F]:
         where values belong, or a collection is mixed with values.
     :raises ValueError: If a value is given twice.
     """
-    return _attach(_choices(values))
+    return _choices(values)
 
 
-def children_of(function: FunctionType) -> dict[str, tuple[Child, ...]]:
-    attached: dict[str, list[Child]] = {}
-    current: str | None = None
-    for record in nodes_of(function):
-        if isinstance(record, PARENT_KINDS):
-            current = record.name
-            _ = attached.setdefault(current, [])
-        if isinstance(record, CHILD_KINDS):
-            if current is None:
-                message = (
-                    f"{record.call} is above every parent, so it has nothing to "
-                    "check. Put it right below the parent whose value it checks."
-                )
-                raise TypeError(message)
-            attached[current].append(record)
-    return {name: tuple(children) for name, children in attached.items()}
+def check_below(function: object, decorator: str) -> None:
+    if isinstance(function, Child):
+        name = written_name(function)
+        message = f"@{decorator} is above @{name}, which needs parentheses: @{name}()."
+        raise TypeError(message)
 
 
-def first_problem(children: tuple[Child, ...], value: object) -> str | None:
-    for child in children:
-        problem = child.problem(value)
-        if problem is not None:
-            return problem
-    return None
+def run_child(found: AnyChild, value: object) -> object:
+    return typing.cast("Child[object, object]", found).process(value)
 
 
-def _attach(child: Child) -> Callable[[F], F]:
-    def decorate(function: F) -> F:
-        store(child, function, child.decorator)
-        return function
+def input_type(found: AnyChild) -> object:
+    process: Callable[..., object] = (
+        typing.cast("FunctionChild[object, object]", found).function
+        if isinstance(found, FunctionChild)
+        else found.process
+    )
+    hints: dict[str, object] = typing.get_type_hints(process)
+    first = next(iter(inspect.signature(process).parameters))
+    return hints.get(first)
 
-    return decorate
+
+def written_name(found: object) -> str:
+    if isinstance(found, FunctionChild):
+        return typing.cast("FunctionChild[object, object]", found).name
+    return type(found).__name__
+
+
+def converts(children: tuple[AnyChild, ...], annotation: object) -> bool:
+    if not children or isinstance(children[0], BUILT_IN_KINDS):
+        return False
+    return _same(input_type(children[0]), str) and not _same(
+        value_type(annotation), str
+    )
+
+
+def misfit(found: AnyChild, base: object, name: str) -> str | None:
+    if isinstance(found, BUILT_IN_KINDS):
+        return found.misfit(base, name)
+    taken = input_type(found)
+    if fits(base, taken):
+        return None
+    return (
+        f"@{found!r} takes {describe(taken)}, "
+        f"but parameter {name!r} has the type {describe(base)}."
+    )
+
+
+def fits(base: object, taken: object) -> bool:
+    if not isinstance(base, type) or not isinstance(taken, type):
+        return True
+    return issubclass(base, taken) or (_same(base, int) and _same(taken, float))
 
 
 def _choices(values: tuple[object, ...]) -> Choices:
@@ -322,37 +476,37 @@ def _choices(values: tuple[object, ...]) -> Choices:
         if isinstance(only, range):
             raise _range_error(only)
         if isinstance(only, type) and issubclass(only, Enum):
-            return _checked_choices(tuple(only), f"@choices({only.__qualname__})", only)
+            return _checked_choices(tuple(only), f"choices({only.__qualname__})", only)
         if isinstance(only, list | tuple | set | frozenset):
             items = tuple(typing.cast("Collection[object]", only))
             if isinstance(only, set | frozenset):
                 items = tuple(sorted(items, key=shown))
             listed = ", ".join(_quoted(item) for item in items)
-            return _checked_choices(items, f"@choices([{listed}])")
-    call = f"@choices({', '.join(_quoted(value) for value in values)})"
+            return _checked_choices(items, f"choices([{listed}])")
+    text = f"choices({', '.join(_quoted(value) for value in values)})"
     for value in values:
         if isinstance(value, list | tuple | set | frozenset | range) or (
             isinstance(value, type) and issubclass(value, Enum)
         ):
             message = (
-                f"{call} mixes a collection with values. "
+                f"@{text} mixes a collection with values. "
                 "Pass the values one by one, or one collection."
             )
             raise TypeError(message)
-    return _checked_choices(values, call)
+    return _checked_choices(values, text)
 
 
 def _checked_choices(
-    values: tuple[object, ...], call: str, source: type[Enum] | None = None
+    values: tuple[object, ...], text: str, source: type[Enum] | None = None
 ) -> Choices:
     if not values:
         message = '@choices needs values, such as @choices("zip", "tar").'
         raise TypeError(message)
     for value in values:
         if values.count(value) > 1:
-            message = f"{call} lists {value!r} twice. Remove one."
+            message = f"@{text} lists {value!r} twice. Remove one."
             raise ValueError(message)
-    return Choices(values, call, source)
+    return Choices(values, text, source)
 
 
 def _range_error(values: range) -> TypeError:
@@ -409,17 +563,17 @@ def _pattern_text(pattern: object) -> str:
     raise TypeError(message)
 
 
-def _wrong_way_round(call: str, swapped: str) -> None:
-    message = f"{call} has its bounds the wrong way round. Use {swapped}."
+def _wrong_way_round(found: AnyChild, swapped: AnyChild) -> None:
+    message = f"@{found!r} has its bounds the wrong way round. Use @{swapped!r}."
     raise ValueError(message)
 
 
-def _bounds_call(decorator: str, low: str, high: str, child: Between | Length) -> str:
-    if child.low is not None and child.high is not None:
-        return f"@{decorator}({low}, {high})"
-    if child.low is not None:
-        return f"@{decorator}(low={low})"
-    return f"@{decorator}(high={high})"
+def _bounds_text(decorator: str, low: str, high: str, found: Between | Length) -> str:
+    if found.low is not None and found.high is not None:
+        return f"{decorator}({low}, {high})"
+    if found.low is not None:
+        return f"{decorator}(low={low})"
+    return f"{decorator}(high={high})"
 
 
 def _kind(bound: Bound) -> str:
@@ -444,14 +598,22 @@ def _value_fits(value: object, base: object) -> bool:
     return isinstance(base, type) and isinstance(value, base)
 
 
-def _text_misfit(call: str, base: object, name: str) -> str | None:
+def _text_misfit(found: AnyChild, base: object, name: str) -> str | None:
     if base is str:
         return None
-    return f"{call} checks text, but parameter {name!r} has the type {describe(base)}."
+    return (
+        f"@{found!r} checks text, but parameter {name!r} has the type {describe(base)}."
+    )
 
 
 def _characters(count: int | None) -> str:
     return f"{count} character" if count == 1 else f"{count} characters"
+
+
+def _shown_value(value: object) -> str:
+    if isinstance(value, str | Enum | Path):
+        return repr(shown(value))
+    return shown(value)
 
 
 def _quoted(value: object) -> str:
