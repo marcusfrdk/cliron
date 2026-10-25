@@ -1,7 +1,7 @@
 import inspect
 import sys
 import typing
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Generator, Sequence
 from dataclasses import replace
 from types import FunctionType, NoneType
 from typing import ClassVar, NoReturn
@@ -312,7 +312,10 @@ def group(
 
     Put commands and groups in it with its ``add`` method. The group's
     function runs with its own options, flags and environment variables before
-    the command that was asked for, and must return ``None``.
+    the command that was asked for, and must return ``None``. A function that
+    yields once runs the code after its ``yield`` once the command and the
+    groups inside have finished, and on failure the exception is raised at the
+    ``yield``, so ``try`` and ``finally`` around it work as usual.
 
     :param name: The group's name, in snake_case.
     :param help_flags: The flags that show help, for the group and everything
@@ -397,19 +400,91 @@ def main(root: Node, args: list[str]) -> int:
     path = tuple(token(node.name) for node, _ in parsed.path)
     shared: dict[type[object], object] = {Context: Context(path)}
     *groups, (leaf, values) = parsed.path
-    for node, group_values in groups:
-        result = node.function(**_with_shared(node, group_values, shared))
-        if result is not None:
-            message = (
-                f"group '{token(node.name)}' returned {type(result).__name__}, "
-                "but a group must return None. "
-                "Print the value, or return it from a command."
-            )
-            error = TypeError(message)
-            error.add_note(location(node))
-            raise MistakeError(error)
-    _render(leaf, leaf.function(**_with_shared(leaf, values, shared)))
+    opened: list[tuple[Node, Teardown]] = []
+    try:
+        for node, group_values in groups:
+            teardown = _run_group(node, _with_shared(node, group_values, shared))
+            if teardown is not None:
+                opened.append((node, teardown))
+        output = leaf.function(**_with_shared(leaf, values, shared))
+    except BaseException as error:
+        _tear_down(opened, error)
+        raise
+    _tear_down(opened, None)
+    _render(leaf, output)
     return 0
+
+
+Teardown = Generator[object, None, object]
+
+
+def _run_group(node: Node, arguments: dict[str, object]) -> Teardown | None:
+    result = node.function(**arguments)
+    if result is None:
+        return None
+    if not inspect.isgenerator(result):
+        raise _returned_a_value(node, result)
+    teardown = typing.cast("Teardown", result)
+    try:
+        yielded = next(teardown)
+    except StopIteration:
+        message = (
+            f"group '{token(node.name)}' returned before its yield, so nothing "
+            "inside it could run. Yield once, between setup and teardown."
+        )
+        raise _mistake(node, message) from None
+    if yielded is not None:
+        _ = teardown.close()
+        message = (
+            f"group '{token(node.name)}' yielded {type(yielded).__name__}, but a "
+            "group yields nothing. Use a bare yield, and share data with @state."
+        )
+        raise _mistake(node, message)
+    return teardown
+
+
+def _tear_down(
+    opened: list[tuple[Node, Teardown]], error: BaseException | None
+) -> None:
+    if not opened:
+        return
+    *outer, (node, teardown) = opened
+    try:
+        _finish(node, teardown, error)
+    except BaseException as raised:
+        _tear_down(outer, raised)
+        raise
+    _tear_down(outer, error)
+
+
+def _finish(node: Node, teardown: Teardown, error: BaseException | None) -> None:
+    try:
+        _ = next(teardown) if error is None else teardown.throw(error)
+    except StopIteration as stopped:
+        result = typing.cast("object", stopped.value)
+        if error is None and result is not None:
+            raise _returned_a_value(node, result) from None
+        return
+    _ = teardown.close()
+    message = (
+        f"group '{token(node.name)}' yielded twice. "
+        "Yield once, between setup and teardown."
+    )
+    raise _mistake(node, message)
+
+
+def _returned_a_value(node: Node, result: object) -> MistakeError:
+    message = (
+        f"group '{token(node.name)}' returned {type(result).__name__}, "
+        "but a group must return None. Print the value, or return it from a command."
+    )
+    return _mistake(node, message)
+
+
+def _mistake(node: Node, message: str) -> MistakeError:
+    error = TypeError(message)
+    error.add_note(location(node))
+    return MistakeError(error)
 
 
 def _with_shared(
@@ -492,10 +567,11 @@ def _definition(root: Root) -> Definition:
             "and cliron doesn't run async functions yet."
         )
         raise TypeError(message)
-    if inspect.isgeneratorfunction(function):
+    if inspect.isgeneratorfunction(function) and root.kind == "command":
         message = (
-            f"{function.__name__!r} is a generator, "
-            "and cliron doesn't run generator functions yet."
+            f"{function.__name__!r} is a generator, but only a group's function "
+            "can yield, to run teardown after its commands. "
+            "Return the command's result instead."
         )
         raise TypeError(message)
     parameters = inspect.signature(function).parameters

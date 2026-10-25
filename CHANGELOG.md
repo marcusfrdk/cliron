@@ -30,6 +30,7 @@
 - Errors and help name an option or flag that has a short flag by both flags, such as `-k/--keep`.
 - A function's parameter annotated `Context` receives the path of the run, as users typed it.
 - The `state` decorator marks a class for your own data: every parameter annotated with it receives the run's one instance, so groups and commands can share it.
+- A group's function that yields once runs the code after its `yield` when everything inside the group has finished, even on failure, and the command's output is printed only once every teardown has succeeded.
 
 ### Changed
 

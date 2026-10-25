@@ -474,12 +474,15 @@ def test_async_generator_function_is_rejected(check: Check) -> None:
 
 
 @ENTRY_POINTS
-def test_generator_function_is_rejected(check: Check) -> None:
+def test_a_command_cant_be_a_generator(check: Check) -> None:
     @command("greet")
     def greet() -> Iterator[str]:
         yield "Hello!"
 
-    message = "'greet' is a generator, and cliron doesn't run generator functions yet."
+    message = (
+        "'greet' is a generator, but only a group's function can yield, to run "
+        "teardown after its commands. Return the command's result instead."
+    )
     with pytest.raises(TypeError, match=exactly(message)):
         _ = check(greet)
 
