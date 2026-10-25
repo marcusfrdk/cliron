@@ -1861,7 +1861,7 @@ def test_help_flag_that_isnt_a_string_is_rejected(
 def test_help_flag_listed_twice_is_rejected(
     root: Root, kind: str, help_flags: list[str], repeated: str
 ) -> None:
-    message = f"help_flags of @{kind} lists {repeated} twice."
+    message = f"help_flags of @{kind} lists {repeated} twice. Remove one."
     with pytest.raises(ValueError, match=exactly(message)):
         _ = root("notes", help_flags=help_flags)
 

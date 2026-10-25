@@ -140,7 +140,7 @@ def option(
     return _attach(
         Option(
             check_parameter_name(name, "option"),
-            check_short(short),
+            check_short(short, "option"),
             _check_help(help, "option"),
         )
     )
@@ -167,7 +167,7 @@ def flag(
     return _attach(
         Flag(
             check_parameter_name(name, "flag"),
-            check_short(short),
+            check_short(short, "flag"),
             _check_help(help, "flag"),
         )
     )

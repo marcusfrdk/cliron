@@ -6,6 +6,7 @@ import sys
 from collections.abc import Generator, Mapping
 from pathlib import Path
 
+from cliron._parsing import MistakeError
 from cliron._roots import Command, Group, main
 
 
@@ -45,6 +46,8 @@ def run(
             returncode = main(cli, args)
         except SystemExit as exit_:
             returncode = _exit_code(exit_)
+        except MistakeError as mistake:
+            raise mistake.error from None
     return subprocess.CompletedProcess(args, returncode, stdout.text(), stderr.text())
 
 

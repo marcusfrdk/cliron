@@ -403,11 +403,11 @@ def test_dependency_rejects_the_wrong_types(
         ),
         (
             lambda: dependency.together("user", "user"),
-            'dependency.together("user", "user") names \'user\' twice.',
+            'dependency.together("user", "user") names \'user\' twice. Remove one.',
         ),
         (
             lambda: dependency.at_most(1, "a", "a", "b"),
-            'dependency.at_most(1, "a", "a", "b") names \'a\' twice.',
+            'dependency.at_most(1, "a", "a", "b") names \'a\' twice. Remove one.',
         ),
     ],
 )
@@ -477,10 +477,27 @@ def test_dependency_rejects_an_input_without_a_default(check: Check) -> None:
 
     message = (
         'dependency.requires("otp", "user") names \'user\', which has no default, '
-        "so it is always given. Give it a default, or change the dependency."
+        "so it is always given. Give it one, such as user: str | None = None, "
+        "or remove the dependency."
     )
     with pytest.raises(ValueError, match=exactly(message)):
         _ = check(pick)
+
+
+def test_an_optional_type_without_a_default_keeps_one_none_in_the_fix() -> None:
+    @command("pick", dependencies=[dependency.requires("otp", "user")])
+    @option("otp")
+    @option("user")
+    def pick(user: str | None, otp: str | None = None) -> None:
+        _ = (user, otp)
+
+    message = (
+        'dependency.requires("otp", "user") names \'user\', which has no default, '
+        "so it is always given. Give it one, such as user: str | None = None, "
+        "or remove the dependency."
+    )
+    with pytest.raises(ValueError, match=exactly(message)):
+        validate(pick)
 
 
 CYCLES = {

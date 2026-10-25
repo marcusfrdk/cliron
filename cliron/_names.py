@@ -49,11 +49,11 @@ def parameter_suggestion(name: str) -> str | None:
     return suggestion
 
 
-def check_short(short: object) -> str | None:
+def check_short(short: object, decorator: str) -> str | None:
     if short is not None and not isinstance(short, str):
         message = (
-            f"the short flag must be a string such as '-c', not {short!r}. "
-            "A default value goes in the function's signature."
+            f"@{decorator} takes the short flag as a string, such as '-c', "
+            f"not {short!r}. A default value goes in the function's signature."
         )
         raise TypeError(message)
     if short is None or _SHORT_FLAG.fullmatch(short):

@@ -124,7 +124,8 @@ def test_root_decorator_rejects_something_that_isnt_a_function(
     @command("hello")
     def hello() -> None: ...
 
-    with pytest.raises(TypeError, match=exactly(f"@{name} must decorate a function.")):
+    message = f"@{name} must decorate a function. Put it directly above a def."
+    with pytest.raises(TypeError, match=exactly(message)):
         _ = root("greet")(hello)
 
 
@@ -145,7 +146,8 @@ def test_two_parents_with_the_same_name_are_rejected() -> None:
         return count
 
     message = (
-        'parameter \'count\' has two parents, @option("count") and @flag("count").'
+        'parameter \'count\' has two parents, @option("count") and @flag("count"). '
+        "Remove one."
     )
     with pytest.raises(ValueError, match=exactly(message)):
         _ = command("greet")(greet)
@@ -157,7 +159,9 @@ def test_an_option_and_an_env_with_the_same_name_are_rejected() -> None:
     def add(tag: str = "") -> str:
         return tag
 
-    message = 'parameter \'tag\' has two parents, @option("tag") and @env("tag").'
+    message = (
+        'parameter \'tag\' has two parents, @option("tag") and @env("tag"). Remove one.'
+    )
     with pytest.raises(ValueError, match=exactly(message)):
         _ = command("add")(add)
 
@@ -168,7 +172,10 @@ def test_two_parents_with_the_same_short_flag_are_rejected() -> None:
     def greet(count: int = 1, *, color: bool = False) -> str:
         return f"{count} {color}"
 
-    message = '-c is used by both @option("count") and @flag("color").'
+    message = (
+        '-c is used by both @option("count") and @flag("color"). '
+        "Give one of them another short flag."
+    )
     with pytest.raises(ValueError, match=exactly(message)):
         _ = command("greet")(greet)
 
@@ -182,7 +189,7 @@ def test_group_rejects_two_commands_with_the_same_name(first: str, second: str) 
     def items() -> None: ...
 
     cli.add(command("list")(items) if first == "command" else group("list")(items))
-    message = "group 'cli' already has a command 'list'."
+    message = "group 'cli' already has a command 'list'. Rename one of them."
     with pytest.raises(ValueError, match=exactly(message)):
         cli.add(command("list")(items) if second == "command" else group("list")(items))
 
@@ -232,7 +239,7 @@ def test_parameter_without_annotation_is_rejected(check: Check) -> None:
 
     del greet.__annotations__["name"]
     cli = command("greet")(greet)
-    message = "parameter 'name' needs a type annotation."
+    message = "parameter 'name' has no type annotation. Add one, such as name: str."
     with pytest.raises(TypeError, match=exactly(message)):
         _ = check(cli)
 
@@ -296,7 +303,8 @@ def test_flag_must_be_a_bool_or_an_int(
     greet.__annotations__["level"] = annotation
     cli = command("greet")(greet)
     message = (
-        f"flag 'level' has the type {description}, but a flag is a bool or an int."
+        f"flag 'level' has the type {description}, but a flag is a bool or an int. "
+        "Use level: bool = False, or level: int = 0 to count."
     )
     with pytest.raises(TypeError, match=exactly(message)):
         _ = check(cli)
@@ -375,7 +383,8 @@ def test_required_argument_after_optional_argument_is_rejected(check: Check) -> 
 
     message = (
         "argument 'target' has no default, "
-        "so it can't come after argument 'source', which has one."
+        "so it can't come after argument 'source', which has one. "
+        "Give 'target' a default, or move its @argument above 'source'."
     )
     with pytest.raises(TypeError, match=exactly(message)):
         _ = check(copy)
@@ -390,7 +399,8 @@ def test_list_argument_must_come_last(check: Check) -> None:
         return f"{sources} {target}"
 
     message = (
-        "argument 'sources' takes several values, so it must be the last argument."
+        "argument 'sources' takes several values, so it must be the last argument. "
+        "Move its @argument below the others."
     )
     with pytest.raises(TypeError, match=exactly(message)):
         _ = check(copy)
@@ -686,7 +696,24 @@ def test_two_parents_typed_the_same_are_rejected() -> None:
     def greet(count: int = 1, count_: int = 1) -> str:
         return f"{count} {count_}"
 
-    message = '--count is used by both @option("count") and @option("count_").'
+    message = (
+        '--count is used by both @option("count") and @option("count_"). '
+        "Rename one of them."
+    )
+    with pytest.raises(ValueError, match=exactly(message)):
+        _ = command("greet")(greet)
+
+
+def test_two_arguments_shown_the_same_are_rejected() -> None:
+    @argument("count")
+    @argument("count_")
+    def greet(count: int, count_: int) -> str:
+        return f"{count} {count_}"
+
+    message = (
+        'COUNT is used by both @argument("count") and @argument("count_"). '
+        "Rename one of them."
+    )
     with pytest.raises(ValueError, match=exactly(message)):
         _ = command("greet")(greet)
 
@@ -787,7 +814,7 @@ def test_enum_without_members_is_rejected(check: Check) -> None:
         return repr(choice)
 
     with pytest.raises(
-        TypeError, match=exactly("Empty has no members to choose from.")
+        TypeError, match=exactly("Empty has no members to choose from. Add one.")
     ):
         _ = check(pick)
 
@@ -819,13 +846,13 @@ def test_build_error_note_falls_back_when_the_wrapped_object_isnt_a_function() -
     assert info.value.__notes__ == [defined_at("command", "greet", line)]
 
 
-@pytest.mark.parametrize("decorator", [option, flag])
+@pytest.mark.parametrize(("decorator", "name"), [(option, "option"), (flag, "flag")])
 @pytest.mark.parametrize("short", [1, True])
 def test_short_flag_that_isnt_a_string_is_rejected(
-    decorator: Callable[..., object], short: object
+    decorator: Callable[..., object], name: str, short: object
 ) -> None:
     message = (
-        f"the short flag must be a string such as '-c', not {short!r}. "
+        f"@{name} takes the short flag as a string, such as '-c', not {short!r}. "
         "A default value goes in the function's signature."
     )
     with pytest.raises(TypeError, match=exactly(message)):

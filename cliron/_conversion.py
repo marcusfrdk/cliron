@@ -90,7 +90,7 @@ def _members(enum: type[Enum]) -> dict[str, Enum]:
             )
             raise TypeError(message)
     if not members:
-        message = f"{enum.__qualname__} has no members to choose from."
+        message = f"{enum.__qualname__} has no members to choose from. Add one."
         raise TypeError(message)
     return members
 

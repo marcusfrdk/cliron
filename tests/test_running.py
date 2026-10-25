@@ -34,10 +34,7 @@ ACCENT_JSON = """\
 }
 """
 
-UNREPRESENTABLE_NOTE = (
-    "command 'show-data' returned it. "
-    "Return None, a str, or data that JSON can represent."
-)
+UNREPRESENTABLE_FIX = "Return None, a str, or data that JSON can represent."
 
 
 def test_none_return_value_prints_nothing() -> None:
@@ -124,7 +121,9 @@ def test_unserializable_return_value_raises_type_error_naming_the_command(
     with pytest.raises(TypeError) as info:
         _ = run(show_data, [])
 
-    assert info.value.__notes__ == [UNREPRESENTABLE_NOTE]
+    fix, where = info.value.__notes__
+    assert fix == UNREPRESENTABLE_FIX
+    assert where.startswith(f"in command 'show-data', defined at {__file__}:")
 
 
 @pytest.mark.parametrize(
@@ -145,7 +144,9 @@ def test_out_of_range_float_raises_value_error_naming_the_command(
     with pytest.raises(ValueError, match="not JSON compliant") as info:
         _ = run(show_data, [])
 
-    assert info.value.__notes__ == [UNREPRESENTABLE_NOTE]
+    fix, where = info.value.__notes__
+    assert fix == UNREPRESENTABLE_FIX
+    assert where.startswith(f"in command 'show-data', defined at {__file__}:")
 
 
 def test_uncaught_exception_propagates_out_of_run() -> None:

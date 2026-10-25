@@ -273,7 +273,10 @@ def test_two_parents_cant_read_one_variable() -> None:
     def login(first: str, second: str) -> None:
         _ = (first, second)
 
-    message = '$TOKEN is used by both @env("first") and @env("second").'
+    message = (
+        '$TOKEN is used by both @env("first") and @env("second"). '
+        "Give one of them another variable."
+    )
     with pytest.raises(ValueError, match=exactly(message)):
         _ = command("login")(login)
 

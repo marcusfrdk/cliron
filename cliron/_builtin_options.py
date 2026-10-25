@@ -46,7 +46,7 @@ def help_option_for(help_flags: object, decorator: str) -> HelpOption | None:
     for flag in help_flags:
         checked = check_flag(flag, f"help_flags of @{decorator}")
         if checked in flags:
-            message = f"help_flags of @{decorator} lists {checked} twice."
+            message = f"help_flags of @{decorator} lists {checked} twice. Remove one."
             raise ValueError(message)
         flags.append(checked)
     return HelpOption(tuple(flags))

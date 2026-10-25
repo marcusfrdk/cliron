@@ -461,7 +461,7 @@ def _names(
         names.append(value)
     for name in names:
         if names.count(name) > 1:
-            message = f"{_call(method, names, count)} names {name!r} twice."
+            message = f"{_call(method, names, count)} names {name!r} twice. Remove one."
             raise ValueError(message)
     return tuple(names)
 

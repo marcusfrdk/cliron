@@ -773,7 +773,10 @@ def test_group_callback_returning_a_value_raises_type_error() -> None:
 
     notes.add(add)
 
-    message = "group 'notes' must return None, but it returned a value of type str."
+    message = (
+        "group 'notes' returned str, but a group must return None. "
+        "Print the value, or return it from a command."
+    )
     with pytest.raises(TypeError, match=re.escape(message)):
         _ = run(notes, ["add"])
     assert calls == ["notes"]

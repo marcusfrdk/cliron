@@ -231,7 +231,7 @@ def test_command_reads_stdin_once() -> None:
     def cat(text: str, lines: list[str]) -> None:
         _ = (text, lines)
 
-    message = 'stdin is used by both @stdin("text") and @stdin("lines").'
+    message = 'stdin is used by both @stdin("text") and @stdin("lines"). Remove one.'
     with pytest.raises(ValueError, match=exactly(message)):
         _ = command("cat")(cat)
 
@@ -242,7 +242,10 @@ def test_an_option_and_stdin_with_the_same_name_are_rejected() -> None:
     def show(text: str = "") -> str:
         return text
 
-    message = 'parameter \'text\' has two parents, @option("text") and @stdin("text").'
+    message = (
+        'parameter \'text\' has two parents, @option("text") and @stdin("text"). '
+        "Remove one."
+    )
     with pytest.raises(ValueError, match=exactly(message)):
         _ = command("show")(show)
 

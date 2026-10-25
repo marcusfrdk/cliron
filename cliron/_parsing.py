@@ -14,6 +14,12 @@ _FINAL_LINE_BREAK = re.compile(r"\r?\n\Z")
 _LINE_BREAK = re.compile(r"\r?\n")
 
 
+class MistakeError(Exception):
+    def __init__(self, error: Exception) -> None:
+        super().__init__(str(error))
+        self.error: Exception = error
+
+
 @dataclass(frozen=True)
 class Input:
     parent: Parent
@@ -98,8 +104,11 @@ def parse(root: Node, args: Sequence[str]) -> Parsed:
 class _Segment:
     def __init__(self, node: Node, inherited: Builtins, start: int) -> None:
         self.node: Node = node
-        self.definition: Definition = node.definition()
-        self.builtins: Builtins = node.builtins(inherited)
+        try:
+            self.definition: Definition = node.definition()
+            self.builtins: Builtins = node.builtins(inherited)
+        except Exception as error:
+            raise MistakeError(error) from error
         self.builtin_flags: dict[str, str] = self.builtins.flags
         self.start: int = start
         self.raw: dict[str, list[str]] = {}

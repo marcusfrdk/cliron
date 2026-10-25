@@ -2,7 +2,7 @@ import inspect
 import sys
 import typing
 from collections.abc import Callable, Sequence
-from types import FunctionType
+from types import FunctionType, NoneType
 from typing import ClassVar, NoReturn
 
 from cliron._builtin_options import (
@@ -33,7 +33,7 @@ from cliron._parents import (
     flags,
     parents_of,
 )
-from cliron._parsing import Definition, Input, Node, Request, parse
+from cliron._parsing import Definition, Input, MistakeError, Node, Request, parse
 from cliron._signals import finish
 
 _UNSUPPORTED_KINDS = {
@@ -84,7 +84,9 @@ class Root:
             names an input the function doesn't have.
         """
         if not isinstance(function, FunctionType):
-            message = f"@{self.kind} must decorate a function."
+            message = (
+                f"@{self.kind} must decorate a function. Put it directly above a def."
+            )
             raise TypeError(message)
         self.name: str = name
         self.function: FunctionType = function
@@ -106,12 +108,15 @@ class Root:
         program already handles or ignores them. On Linux and macOS, output that
         a closed pipe can no longer take ends the program quietly with 1.
 
+        A mistake in the CLI's definition that the run finds is printed with
+        where it was made, instead of a traceback.
+
         :raises SystemExit: With 0 on success, 2 for invalid input, 143 for
-            SIGTERM and 1 for a closed pipe.
+            SIGTERM, and 1 for a closed pipe or a mistake in the definition.
         :raises KeyboardInterrupt: For Ctrl+C, which Python turns into its usual
             exit status, without printing a traceback.
         """
-        finish(lambda: main(self, sys.argv[1:]))
+        finish(lambda: _main_or_mistake(self, sys.argv[1:]))
 
     def definition(self) -> Definition:
         """
@@ -165,13 +170,16 @@ class Root:
             if other is not parent:
                 message = (
                     f"parameter '{parent.name}' has two parents, "
-                    f"{call(other)} and {call(parent)}."
+                    f"{call(other)} and {call(parent)}. Remove one."
                 )
                 raise ValueError(message)
             for key in flags(parent) or (display(parent),):
                 other = typed.setdefault(key, parent)
                 if other is not parent:
-                    message = f"{key} is used by both {call(other)} and {call(parent)}."
+                    message = (
+                        f"{key} is used by both {call(other)} and {call(parent)}. "
+                        f"{_clash_fix(key)}"
+                    )
                     raise ValueError(message)
 
     def _check_dependency_names(self) -> None:
@@ -212,7 +220,10 @@ class Group(Root):
             _check_node(self, node)
             key = token(node.name)
             if key in self.commands:
-                message = f"group '{token(self.name)}' already has a command '{key}'."
+                message = (
+                    f"group '{token(self.name)}' already has a command '{key}'. "
+                    "Rename one of them."
+                )
                 raise ValueError(message)
             self.commands[key] = node
 
@@ -333,6 +344,16 @@ def _contains(group: Group, node: Root) -> bool:
     )
 
 
+def _main_or_mistake(root: Root, args: list[str]) -> int:
+    try:
+        return main(root, args)
+    except MistakeError as mistake:
+        notes = typing.cast("list[str]", getattr(mistake.error, "__notes__", []))
+        lines = [f"error: {mistake.error}", *(f"  {note}" for note in notes)]
+        _ = sys.stderr.write("".join(f"{line}\n" for line in lines))
+        return 1
+
+
 def main(root: Node, args: list[str]) -> int:
     parsed = parse(root, args)
     request = parsed.request
@@ -351,10 +372,13 @@ def main(root: Node, args: list[str]) -> int:
         result = node.function(**group_values)
         if result is not None:
             message = (
-                f"group '{token(node.name)}' must return None, "
-                f"but it returned a value of type {type(result).__name__}."
+                f"group '{token(node.name)}' returned {type(result).__name__}, "
+                "but a group must return None. "
+                "Print the value, or return it from a command."
             )
-            raise TypeError(message)
+            error = TypeError(message)
+            error.add_note(location(node))
+            raise MistakeError(error)
     _render(leaf, leaf.function(**values))
     return 0
 
@@ -403,12 +427,9 @@ def _render(node: Node, result: object) -> None:
         try:
             text = json.dumps(result, indent=2, ensure_ascii=False, allow_nan=False)
         except (TypeError, ValueError) as error:
-            note = (
-                f"command '{token(node.name)}' returned it. "
-                "Return None, a str, or data that JSON can represent."
-            )
-            error.add_note(note)
-            raise
+            error.add_note("Return None, a str, or data that JSON can represent.")
+            error.add_note(location(node))
+            raise MistakeError(error) from error
     _ = sys.stdout.write(text + "\n")
 
 
@@ -416,16 +437,17 @@ def _define(root: Root) -> Definition:
     try:
         definition = Definition(_inputs(root), root.dependencies)
         _check_arguments(definition.arguments)
-        _check_dependencies(definition)
+        _check_dependencies(root, definition)
     except Exception as error:
         error.add_note(location(root))
         raise
     return definition
 
 
-def location(root: Root) -> str:
+def location(root: Node) -> str:
     original = typing.cast("object", inspect.unwrap(root.function))
-    code = (original if isinstance(original, FunctionType) else root.function).__code__
+    function = original if isinstance(original, FunctionType) else root.function
+    code = typing.cast("FunctionType", function).__code__
     return (
         f"in {root.kind} '{token(root.name)}', "
         f"defined at {code.co_filename}:{code.co_firstlineno}"
@@ -496,7 +518,10 @@ def _input(
         )
         raise TypeError(message)
     if parent.name not in hints:
-        message = f"parameter '{parent.name}' needs a type annotation."
+        message = (
+            f"parameter '{parent.name}' has no type annotation. "
+            f"Add one, such as {parent.name}: str."
+        )
         raise TypeError(message)
     annotation = hints[parent.name]
     default = typing.cast("object", parameter.default)
@@ -557,24 +582,48 @@ def _flag(parent: Flag, annotation: object, default: object) -> Input:
         raise ValueError(message)
     message = (
         f"flag '{name}' has the type {describe(annotation)}, "
-        "but a flag is a bool or an int."
+        f"but a flag is a bool or an int. Use {name}: bool = False, "
+        f"or {name}: int = 0 to count."
     )
     raise TypeError(message)
 
 
-def _check_dependencies(definition: Definition) -> None:
+def _check_dependencies(root: Root, definition: Definition) -> None:
     required = {target.name for target in definition.inputs if target.required}
     for found in definition.dependencies:
         for name in found.names:
             if name in required:
+                hints: dict[str, object] = typing.get_type_hints(
+                    root.function, include_extras=True
+                )
+                example = _optional(name, hints[name])
                 message = (
                     f"{found.call} names {name!r}, which has no default, so it is "
-                    "always given. Give it a default, or change the dependency."
+                    f"always given. Give it one, such as {example}, "
+                    "or remove the dependency."
                 )
                 raise ValueError(message)
     problem = cycle_problem(definition.dependencies, definition.labels)
     if problem is not None:
         raise ValueError(problem)
+
+
+def _optional(name: str, annotation: object) -> str:
+    arguments: tuple[object, ...] = typing.get_args(annotation)
+    optional = "" if NoneType in arguments else " | None"
+    return f"{name}: {describe(annotation)}{optional} = None"
+
+
+def _clash_fix(key: str) -> str:
+    if key.startswith("--"):
+        return "Rename one of them."
+    if key.startswith("-"):
+        return "Give one of them another short flag."
+    if key.startswith("$"):
+        return "Give one of them another variable."
+    if key == "stdin":
+        return "Remove one."
+    return "Rename one of them."
 
 
 def _check_arguments(arguments: tuple[Input, ...]) -> None:
@@ -583,13 +632,16 @@ def _check_arguments(arguments: tuple[Input, ...]) -> None:
         if target.multiple and index < len(arguments) - 1:
             message = (
                 f"argument '{target.name}' takes several values, "
-                "so it must be the last argument."
+                "so it must be the last argument. "
+                "Move its @argument below the others."
             )
             raise TypeError(message)
         if target.required and optional is not None:
             message = (
                 f"argument '{target.name}' has no default, so it can't come after "
-                f"argument '{optional.name}', which has one."
+                f"argument '{optional.name}', which has one. "
+                f"Give '{target.name}' a default, or move its @argument above "
+                f"'{optional.name}'."
             )
             raise TypeError(message)
         if not target.required:
