@@ -152,8 +152,8 @@ def test_children_report_a_bad_value_after_the_label() -> None:
 
     assert result.returncode == 2
     assert result.stderr == (
-        "error: --count: 3 isn't even.\n"
-        "error: --size: 4 isn't a multiple of 3.\n"
+        "error: -c/--count: 3 isn't even.\n"
+        "error: -s/--size: 4 isn't a multiple of 3.\n"
         "Run 'pick --help' for usage.\n"
     )
 
@@ -205,7 +205,7 @@ def test_help_names_the_type_a_converting_child_returns() -> None:
 def test_a_converting_child_can_read_another_format_of_a_known_type() -> None:
     assert run(paint, ["-r", "ff", "--level", "2"]).stdout == "255 2\n"
     assert run(paint, ["-r", "1ff"]).stderr == (
-        "error: --red: 511 isn't between 0 and 255.\nRun 'paint --help' for usage.\n"
+        "error: -r/--red: 511 isn't between 0 and 255.\nRun 'paint --help' for usage.\n"
     )
 
 

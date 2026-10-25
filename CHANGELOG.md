@@ -25,6 +25,9 @@
 - A child that doesn't fit its parameter's type, returns a value of another type or is written without parentheses is reported as a mistake in the definition.
 - The `file` and `directory` decorators check that a path is an existing file or directory, or with `exists=False` that nothing is there yet, and check a default path on each run that uses it.
 - A child class can set `default_check = "run"` to have the default checked on each run that uses it, instead of once with the definition.
+- `Parent` and `parent` let you write your own parents, which load a parameter's text from anywhere, as a subclass with `load`, `label` and `missing` methods or as a function that takes the parameter's name.
+- Every parent, built-in or your own, is a `Parent`, so `isinstance` recognizes all of them.
+- Errors and help name an option or flag that has a short flag by both flags, such as `-k/--keep`.
 
 ### Changed
 

@@ -292,7 +292,7 @@ def test_a_group_checks_its_own_dependencies() -> None:
     result = run(notes, ["-qv", "list"])
 
     assert result.stderr == (
-        "error: --quiet can't be used with --verbose.\n"
+        "error: -q/--quiet can't be used with -v/--verbose.\n"
         "Run 'notes list --help' for usage.\n"
     )
 

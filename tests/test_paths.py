@@ -218,7 +218,7 @@ def test_a_child_can_check_the_default_on_each_run() -> None:
     validate(pick)
     assert run(pick, []).stderr == (
         "error: --count: 0 isn't positive.\n"
-        "error: --verbose: 0 isn't positive.\n"
+        "error: -v/--verbose: 0 isn't positive.\n"
         "Run 'pick --help' for usage.\n"
     )
     assert run(pick, ["--count", "2", "-vv"]).stdout == "2 2\n"

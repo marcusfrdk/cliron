@@ -527,8 +527,8 @@ def test_list_option_reports_one_error_per_invalid_value() -> None:
     assert result.returncode == 2
     assert result.stdout == ""
     assert result.stderr == (
-        "error: --width: 'x' isn't a whole number.\n"
-        "error: --width: 'y' isn't a whole number.\n"
+        "error: -w/--width: 'x' isn't a whole number.\n"
+        "error: -w/--width: 'y' isn't a whole number.\n"
         "Run 'resize --help' for usage.\n"
     )
 

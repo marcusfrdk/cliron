@@ -79,9 +79,9 @@ def name(
     ("args", "error"),
     [
         (["-k", "1", "-w", "1", "--percent", "100", "--ratio", "1"], None),
-        (["-k", "0"], "--keep: 0 isn't between 1 and 100."),
-        (["-k", "101"], "--keep: 101 isn't between 1 and 100."),
-        (["-w", "0"], "--workers: 0 is less than 1."),
+        (["-k", "0"], "-k/--keep: 0 isn't between 1 and 100."),
+        (["-k", "101"], "-k/--keep: 101 isn't between 1 and 100."),
+        (["-w", "0"], "-w/--workers: 0 is less than 1."),
         (["--percent", "101"], "--percent: 101 is more than 100."),
         (["--ratio", "1.5"], "--ratio: 1.5 isn't between 0 and 1."),
     ],
@@ -312,7 +312,7 @@ def test_a_counting_flag_can_be_capped() -> None:
 
     assert run(talk, ["-vv"]).stdout == "2\n"
     assert run(talk, ["-vvv"]).stderr == (
-        "error: --verbose: 3 isn't between 0 and 2.\nRun 'talk --help' for usage.\n"
+        "error: -v/--verbose: 3 isn't between 0 and 2.\nRun 'talk --help' for usage.\n"
     )
 
 

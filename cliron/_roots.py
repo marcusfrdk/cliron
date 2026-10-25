@@ -39,13 +39,13 @@ from cliron._names import (
 )
 from cliron._parents import (
     Argument,
+    CommandLineParent,
     Env,
     Flag,
     Parent,
     Stdin,
     call,
     children_of,
-    display,
     flags,
     parents_of,
 )
@@ -199,7 +199,7 @@ class Root:
                     f"{call(other)} and {call(parent)}. Remove one."
                 )
                 raise ValueError(message)
-            for key in flags(parent) or (display(parent),):
+            for key in flags(parent) or (parent.label(),):
                 other = typed.setdefault(key, parent)
                 if other is not parent:
                     message = (
@@ -576,7 +576,7 @@ def _input(
             "with a child that takes str."
         )
         raise TypeError(message)
-    if isinstance(parent, Env) and converter.collect is not None:
+    if not isinstance(parent, CommandLineParent | Stdin) and converter.collect:
         message = (
             f"parameter '{parent.name}' has the type {describe(annotation)}, "
             f"but {call(parent)} reads one value. Use a type without list or tuple."

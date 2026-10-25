@@ -1358,7 +1358,7 @@ def test_group_without_help_needs_a_command(
         (
             ["-q", "-q", "tags", "add", "urgent"],
             (
-                "error: --quiet can only be given once.\n"
+                "error: -q/--quiet can only be given once.\n"
                 "Run 'notes tags add --help' for usage.\n"
             ),
         ),
@@ -2358,7 +2358,7 @@ def test_validate_accepts_a_cli_with_help_and_version() -> None:
     ("args", "error"),
     [
         (["--bogus", "tags"], "unknown option '--bogus'."),
-        (["-c", "x", "tags"], "--count: 'x' isn't a whole number."),
+        (["-c", "x", "tags"], "-c/--count: 'x' isn't a whole number."),
     ],
 )
 def test_errors_before_a_bare_nested_group_win_over_its_help(
@@ -2914,8 +2914,8 @@ def test_help_lists_dependencies() -> None:
         "  -h, --help           Show this help and exit.\n"
         "\n"
         "Dependencies:\n"
-        "  Exactly 1 of --token and --user must be given.\n"
-        "  --user and --password must be given together.\n"
+        "  Exactly 1 of --token and -u/--user must be given.\n"
+        "  -u/--user and -p/--password must be given together.\n"
     )
 
 
@@ -3015,8 +3015,8 @@ def test_command_help_lists_its_groups_dependencies_after_its_own() -> None:
     result = run(notes, ["list", "--help"])
 
     assert result.stdout.split("\n\n")[-2:] == [
-        "Dependencies:\n  --long requires --archived.",
-        "Dependencies for notes:\n  --quiet can't be used with --verbose.\n",
+        "Dependencies:\n  -l/--long requires -a/--archived.",
+        "Dependencies for notes:\n  -q/--quiet can't be used with -v/--verbose.\n",
     ]
 
 

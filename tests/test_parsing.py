@@ -38,7 +38,7 @@ def test_every_input_error_is_reported_at_once() -> None:
     assert result.stdout == ""
     assert result.stderr == (
         "error: NAME is required.\n"
-        "error: --count: 'two' isn't a whole number.\n"
+        "error: -c/--count: 'two' isn't a whole number.\n"
         "error: unknown option '--shot'. Did you mean '--shout'?\n"
         "Run 'greet --help' for usage.\n"
     )
@@ -205,16 +205,16 @@ def test_negative_numbers_are_values(
 @pytest.mark.parametrize(
     ("args", "error"),
     [
-        (["--name", "-x"], "--name needs a value. To pass '-x', write --name=-x."),
-        (["-n", "-x"], "--name needs a value. To pass '-x', write --name=-x."),
+        (["--name", "-x"], "-n/--name needs a value. To pass '-x', write --name=-x."),
+        (["-n", "-x"], "-n/--name needs a value. To pass '-x', write --name=-x."),
         (
             ["--name", "--exclaim"],
-            "--name needs a value. To pass '--exclaim', write --name=--exclaim.",
+            "-n/--name needs a value. To pass '--exclaim', write --name=--exclaim.",
         ),
         (
             ["--name", "-z"],
             (
-                "--name needs a value. To pass '-z', write --name=-z.\n"
+                "-n/--name needs a value. To pass '-z', write --name=-z.\n"
                 "error: unknown option '-z'."
             ),
         ),
@@ -269,7 +269,7 @@ def test_option_at_the_end_of_the_line_needs_a_value(args: list[str]) -> None:
     assert (result.returncode, result.stdout, result.stderr) == (
         2,
         "",
-        "error: --count needs a value.\nRun 'greet --help' for usage.\n",
+        "error: -c/--count needs a value.\nRun 'greet --help' for usage.\n",
     )
     assert calls == []
 
@@ -277,10 +277,10 @@ def test_option_at_the_end_of_the_line_needs_a_value(args: list[str]) -> None:
 @pytest.mark.parametrize(
     ("args", "error"),
     [
-        (["--shout=yes"], "--shout doesn't take a value."),
-        (["--shout="], "--shout doesn't take a value."),
-        (["--verbose=2"], "--verbose doesn't take a value."),
-        (["-s=yes"], "--shout doesn't take a value."),
+        (["--shout=yes"], "-s/--shout doesn't take a value."),
+        (["--shout="], "-s/--shout doesn't take a value."),
+        (["--verbose=2"], "-v/--verbose doesn't take a value."),
+        (["-s=yes"], "-s/--shout doesn't take a value."),
     ],
 )
 def test_flag_given_a_value_is_an_error(args: list[str], error: str) -> None:
@@ -322,7 +322,7 @@ def test_plain_option_given_twice_is_reported_once(args: list[str]) -> None:
     assert (result.returncode, result.stdout, result.stderr) == (
         2,
         "",
-        "error: --count can only be given once.\nRun 'repeat --help' for usage.\n",
+        "error: -c/--count can only be given once.\nRun 'repeat --help' for usage.\n",
     )
     assert calls == []
 
@@ -349,7 +349,7 @@ def test_bool_flag_given_twice_is_reported_once(args: list[str]) -> None:
     assert (result.returncode, result.stdout, result.stderr) == (
         2,
         "",
-        "error: --shout can only be given once.\nRun 'greet --help' for usage.\n",
+        "error: -s/--shout can only be given once.\nRun 'greet --help' for usage.\n",
     )
     assert calls == []
 
@@ -701,9 +701,9 @@ def test_errors_list_declared_inputs_first_then_unplaced_words_in_order() -> Non
     assert result.stdout == ""
     assert result.stderr == (
         "error: PORT: 'eighty' isn't a whole number.\n"
-        "error: --count: 'two' isn't a whole number.\n"
+        "error: -c/--count: 'two' isn't a whole number.\n"
         "error: --host is required.\n"
-        "error: --force can only be given once.\n"
+        "error: -f/--force can only be given once.\n"
         "error: unknown option '-q'.\n"
         "error: unexpected argument 'surplus'.\n"
         "error: unknown option '--zzz'.\n"
@@ -764,11 +764,11 @@ def test_arguments_follow_decorator_order_across_parameter_kinds() -> None:
     [
         (
             ["-v=1"],
-            "error: --verbose doesn't take a value.\nRun 'tool --help' for usage.\n",
+            "error: -v/--verbose doesn't take a value.\nRun 'tool --help' for usage.\n",
         ),
         (
             ["-qv=1"],
-            "error: --verbose doesn't take a value.\nRun 'tool --help' for usage.\n",
+            "error: -v/--verbose doesn't take a value.\nRun 'tool --help' for usage.\n",
         ),
     ],
 )
@@ -812,7 +812,7 @@ def test_short_option_with_an_empty_value_after_equals_needs_a_value() -> None:
     assert (result.returncode, result.stdout, result.stderr) == (
         2,
         "",
-        "error: --count needs a value.\nRun 'greet --help' for usage.\n",
+        "error: -c/--count needs a value.\nRun 'greet --help' for usage.\n",
     )
 
 
@@ -830,8 +830,8 @@ def test_conversion_errors_are_reported_next_to_other_errors_of_the_same_option(
         2,
         "",
         (
-            "error: --number needs a value.\n"
-            "error: --number: '1x' isn't a whole number.\n"
+            "error: -n/--number needs a value.\n"
+            "error: -n/--number: '1x' isn't a whole number.\n"
             "Run 'sum --help' for usage.\n"
         ),
     )
@@ -853,7 +853,8 @@ def test_word_starting_with_a_dash_is_an_option_unless_it_is_a_number(
         2,
         "",
         (
-            f"error: --count needs a value. To pass {word!r}, write --count={word}.\n"
+            f"error: -c/--count needs a value. "
+            f"To pass {word!r}, write --count={word}.\n"
             f"error: unknown option {word!r}.\n"
             "Run 'echo --help' for usage.\n"
         ),
@@ -872,7 +873,7 @@ def test_number_that_isnt_whole_is_a_value_for_an_int_option() -> None:
         2,
         "",
         (
-            "error: --count: '-1e3' isn't a whole number.\n"
+            "error: -c/--count: '-1e3' isn't a whole number.\n"
             "Run 'echo --help' for usage.\n"
         ),
     )
@@ -881,10 +882,10 @@ def test_number_that_isnt_whole_is_a_value_for_an_int_option() -> None:
 @pytest.mark.parametrize(
     ("args", "error"),
     [
-        (["-s", "-s=1"], "--shout doesn't take a value."),
-        (["--shout", "--shout=yes"], "--shout doesn't take a value."),
+        (["-s", "-s=1"], "-s/--shout doesn't take a value."),
+        (["--shout", "--shout=yes"], "-s/--shout doesn't take a value."),
         (["-c", "1", "-c=2"], "Use -c2 or -c 2 instead of -c=2."),
-        (["--count", "1", "--count"], "--count needs a value."),
+        (["--count", "1", "--count"], "-c/--count needs a value."),
     ],
 )
 def test_malformed_repeat_is_also_reported_as_given_twice(
@@ -898,7 +899,7 @@ def test_malformed_repeat_is_also_reported_as_given_twice(
 
     result = run(greet, args)
 
-    once = "--shout" if "shout" in error else "--count"
+    once = "-s/--shout" if "shout" in error else "-c/--count"
     assert (result.returncode, result.stdout, result.stderr) == (
         2,
         "",

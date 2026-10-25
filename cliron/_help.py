@@ -6,8 +6,8 @@ from typing import TextIO, cast
 
 from cliron._builtin_options import Builtins
 from cliron._conversion import shown
-from cliron._names import placeholder
-from cliron._parents import Env, Flag, Option, Stdin
+from cliron._names import long_flag, placeholder
+from cliron._parents import CommandLineParent, Env, Flag, Option, Stdin
 from cliron._parsing import Input, Node, node_path
 
 _MAX_WIDTH = 80
@@ -58,12 +58,13 @@ def render_help(nodes: Sequence[Node], builtins: Builtins, width: int) -> str:
         for target in each.definition().inputs
         if isinstance(target.parent, Env)
     ]
-    piped = [
+    loaded = [
         _value_row(target.display, target, show_required=True)
-        for target in definition.inputs
-        if isinstance(target.parent, Stdin)
+        for each in nodes
+        for target in each.definition().inputs
+        if not isinstance(target.parent, CommandLineParent | Env)
     ]
-    tables.extend([("Environment", environment), ("Input", piped)])
+    tables.extend([("Environment", environment), ("Input", loaded)])
     position = _help_position(
         [*(row for _, rows in tables for row in rows), *commands], width
     )
@@ -161,7 +162,7 @@ def _value_row(name: str, target: Input, *, show_required: bool) -> tuple[str, s
 
 def _option_row(target: Input) -> tuple[str, str]:
     parent = target.parent
-    names = [target.display]
+    names = [long_flag(target.name)]
     if isinstance(parent, Option | Flag) and parent.short is not None:
         names.insert(0, parent.short)
     invocation = ", ".join(names)

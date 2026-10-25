@@ -5,12 +5,13 @@ from typing import TYPE_CHECKING, cast
 if TYPE_CHECKING:
     from cliron._children import Child, between, child, choices, length, matches
     from cliron._dependencies import dependency
-    from cliron._parents import argument, env, flag, option, stdin
+    from cliron._parents import Parent, argument, env, flag, option, parent, stdin
     from cliron._paths import directory, file
     from cliron._roots import command, group
 
 __all__ = [
     "Child",
+    "Parent",
     "__version__",
     "argument",
     "between",
@@ -26,6 +27,7 @@ __all__ = [
     "length",
     "matches",
     "option",
+    "parent",
     "stdin",
 ]
 
@@ -33,6 +35,7 @@ __version__: str
 
 _MODULES = {
     "Child": "cliron._children",
+    "Parent": "cliron._parents",
     "argument": "cliron._parents",
     "between": "cliron._children",
     "child": "cliron._children",
@@ -47,6 +50,7 @@ _MODULES = {
     "length": "cliron._children",
     "matches": "cliron._children",
     "option": "cliron._parents",
+    "parent": "cliron._parents",
     "stdin": "cliron._parents",
 }
 

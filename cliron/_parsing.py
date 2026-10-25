@@ -11,8 +11,8 @@ from cliron._builtin_options import DEFAULT_BUILTINS, Builtins
 from cliron._children import AnyChild, run_child
 from cliron._conversion import NUMBER, Converter, describe, fits_value
 from cliron._dependencies import Dependency, Given
-from cliron._names import closest, token
-from cliron._parents import Argument, Env, Parent, Stdin, display, flags
+from cliron._names import closest, long_flag, token
+from cliron._parents import Argument, Env, Parent, Stdin, call, flags
 
 _FINAL_LINE_BREAK = re.compile(r"\r?\n\Z")
 _LINE_BREAK = re.compile(r"\r?\n")
@@ -40,7 +40,7 @@ class Input:
 
     @property
     def display(self) -> str:
-        return display(self.parent)
+        return self.parent.label()
 
     @property
     def multiple(self) -> bool:
@@ -165,7 +165,7 @@ class _Segment:
         converter = target.converter
         if converter is None:
             return self._resolve_flag(target)
-        unreadable = self._read_outside(target)
+        unreadable = self._load(target)
         if unreadable is not None:
             return None, [unreadable]
         raw = self.raw.get(target.name)
@@ -210,16 +210,23 @@ class _Segment:
                 problems.append(ValueError(f"{target.display}: {error}"))
         return problems
 
-    def _read_outside(self, target: Input) -> Exception | None:
-        if not isinstance(target.parent, Env | Stdin):
-            return None
+    def _load(self, target: Input) -> Exception | None:
         try:
-            text = target.parent.read()
+            text = typing.cast("object", target.parent.load())
         except UnicodeDecodeError as error:
             message = f"{target.display}: the input isn't valid {error.encoding} text."
             return ValueError(message)
-        if text is not None:
-            self.raw[target.name] = _words(target, text)
+        if text is None:
+            return None
+        if not isinstance(text, str):
+            message = (
+                f"{call(target.parent)} returned {type(text).__name__} from load(). "
+                "Make it return str or None."
+            )
+            mistake = TypeError(message)
+            mistake.add_note(location(self.node))
+            raise MistakeError(mistake)
+        self.raw[target.name] = _words(target, text)
         return None
 
 
@@ -362,7 +369,9 @@ class _Reader:
         elif rest.startswith("="):
             value = rest[1:]
             separate = (
-                f"{target.display}={value}" if _is_option(value) else f"{flag} {value}"
+                f"{long_flag(target.name)}={value}"
+                if _is_option(value)
+                else f"{flag} {value}"
             )
             message = f"Use {flag}{value} or {separate} instead of {flag}={value}."
             segment.report(target, ValueError(message))
@@ -379,7 +388,7 @@ class _Reader:
         if _is_option(word):
             message = (
                 f"{target.display} needs a value. "
-                f"To pass {word!r}, write {target.display}={word}."
+                f"To pass {word!r}, write {long_flag(target.name)}={word}."
             )
             segment.report(target, LookupError(message))
             return
@@ -477,7 +486,7 @@ def location(root: Node) -> str:
 
 
 def _words(target: Input, text: str) -> list[str]:
-    if isinstance(target.parent, Env):
+    if not isinstance(target.parent, Stdin):
         return [text]
     text = _FINAL_LINE_BREAK.sub("", text, count=1)
     if not target.multiple:
@@ -492,14 +501,10 @@ def _label(target: Input, line: int) -> str:
 
 
 def _missing(target: Input, path: str) -> str:
-    if isinstance(target.parent, Env):
-        return f"{target.display} isn't set."
+    message = target.parent.missing()
     if isinstance(target.parent, Stdin):
-        return (
-            f"{target.display}: nothing was piped in. "
-            f"For example: cat file.txt | {path}"
-        )
-    return f"{target.display} is required."
+        return f"{message} For example: cat file.txt | {path}"
+    return message
 
 
 def _needs_value(target: Input) -> LookupError:
