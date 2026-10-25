@@ -10,7 +10,7 @@ from typing import Literal
 
 import pytest
 
-from cliron import argument, command, env, flag, group, option, stdin
+from cliron import argument, command, dependency, env, flag, group, option, stdin
 from cliron.testing import run, validate
 
 Check = Callable[..., object]
@@ -2863,3 +2863,164 @@ def test_input_comes_after_environment_and_shows_choices() -> None:
         "Input:\n"
         "  stdin [low|high]  How loud. (default: low)\n"
     )
+
+
+def test_help_lists_dependencies() -> None:
+    @command(
+        "connect",
+        dependencies=[
+            dependency.exactly(1, "token", "user"),
+            dependency.together("user", "password"),
+        ],
+    )
+    @option("host", help="Server to connect to.")
+    @option("token", help="An access token.")
+    @option("user", "-u", help="User name.")
+    @option("password", "-p", help="Password for --user.")
+    def connect(
+        host: str,
+        token: str | None = None,
+        user: str | None = None,
+        password: str | None = None,
+    ) -> None:
+        """Connect to a server with a token, or a user name and password."""
+        _ = (host, token, user, password)
+
+    result = run(connect, ["--help"])
+
+    assert result.stdout == (
+        "Usage: connect [OPTIONS]\n"
+        "\n"
+        "Connect to a server with a token, or a user name and password.\n"
+        "\n"
+        "Options:\n"
+        "  --host TEXT          Server to connect to. (required)\n"
+        "  --token TEXT         An access token.\n"
+        "  -u, --user TEXT      User name.\n"
+        "  -p, --password TEXT  Password for --user.\n"
+        "  -h, --help           Show this help and exit.\n"
+        "\n"
+        "Dependencies:\n"
+        "  Exactly 1 of --token and --user must be given.\n"
+        "  --user and --password must be given together.\n"
+    )
+
+
+def test_help_describes_each_kind_of_dependency() -> None:
+    @command(
+        "pick",
+        dependencies=[
+            dependency.requires("a", "b", "c"),
+            dependency.requires_any("a", "b", "c"),
+            dependency.conflicts("a", "b", "c"),
+            dependency.together("a", "b"),
+            dependency.alone("d"),
+            dependency.at_least(1, "a", "b"),
+            dependency.at_most(2, "a", "b", "c"),
+            dependency.exactly(1, "a", "b"),
+        ],
+    )
+    @flag("a")
+    @flag("b")
+    @flag("c")
+    @flag("d")
+    def pick(
+        *, a: bool = False, b: bool = False, c: bool = False, d: bool = False
+    ) -> None:
+        _ = (a, b, c, d)
+
+    result = run(pick, ["--help"])
+
+    assert result.stdout.split("\n\n")[-1] == (
+        "Dependencies:\n"
+        "  --a requires --b and --c.\n"
+        "  --a requires --b or --c.\n"
+        "  --a can't be used with --b or --c.\n"
+        "  --a and --b must be given together.\n"
+        "  --d must be given alone.\n"
+        "  At least 1 of --a and --b must be given.\n"
+        "  At most 2 of --a, --b and --c can be given.\n"
+        "  Exactly 1 of --a and --b must be given.\n"
+    )
+
+
+def test_long_dependency_wraps_without_moving_the_help_column() -> None:
+    @command(
+        "sync",
+        dependencies=[
+            dependency.together(
+                "first_long_input_name",
+                "second_long_input_name",
+                "third_long_input_name",
+            )
+        ],
+    )
+    @flag("first_long_input_name")
+    @flag("second_long_input_name")
+    @flag("third_long_input_name")
+    def sync(
+        *,
+        first_long_input_name: bool = False,
+        second_long_input_name: bool = False,
+        third_long_input_name: bool = False,
+    ) -> None:
+        _ = (first_long_input_name, second_long_input_name, third_long_input_name)
+
+    result = run(sync, ["--help"])
+
+    assert result.stdout.split("\n\n")[-2:] == [
+        (
+            "Options:\n"
+            "  --first-long-input-name\n"
+            "  --second-long-input-name\n"
+            "  --third-long-input-name\n"
+            "  -h, --help            Show this help and exit."
+        ),
+        (
+            "Dependencies:\n"
+            "  --first-long-input-name, --second-long-input-name and\n"
+            "    --third-long-input-name must be given together.\n"
+        ),
+    ]
+
+
+def test_command_help_lists_its_groups_dependencies_after_its_own() -> None:
+    @group("notes", dependencies=[dependency.conflicts("quiet", "verbose")])
+    @flag("quiet", "-q")
+    @flag("verbose", "-v")
+    def notes(*, quiet: bool = False, verbose: bool = False) -> None:
+        _ = (quiet, verbose)
+
+    @command("list", dependencies=[dependency.requires("long", "archived")])
+    @flag("long", "-l")
+    @flag("archived", "-a")
+    def list_notes(*, long: bool = False, archived: bool = False) -> None:
+        _ = (long, archived)
+
+    notes.add(list_notes)
+
+    result = run(notes, ["list", "--help"])
+
+    assert result.stdout.split("\n\n")[-2:] == [
+        "Dependencies:\n  --long requires --archived.",
+        "Dependencies for notes:\n  --quiet can't be used with --verbose.\n",
+    ]
+
+
+def test_dependencies_come_after_environment_and_input() -> None:
+    @command("say", dependencies=[dependency.requires("loud", "voice")])
+    @flag("loud")
+    @env("voice", help="Who speaks.")
+    @stdin("text", help="What to say.")
+    def say(voice: str = "robot", text: str = "", *, loud: bool = False) -> None:
+        _ = (voice, text, loud)
+
+    result = run(say, ["--help"])
+
+    assert [section.split(":")[0] for section in result.stdout.split("\n\n")] == [
+        "Usage",
+        "Options",
+        "Environment",
+        "Input",
+        "Dependencies",
+    ]

@@ -38,13 +38,14 @@ Every change moves cliron toward these three goals. Ask the user before making a
 - The public API is the names in the `__all__` of `cliron` and of its public subpackages, such as `cliron.testing`. Their code lives in private modules, and `cliron` loads its names lazily. Users never import a module whose name starts with an underscore.
 - Everything used to write a CLI is exported from `cliron`. A public subpackage exists only for a different audience or moment, such as tests, never to split the API along internal lines.
 - Python code runs on Python 3.11: no syntax or standard library APIs newer than that.
+- Agents run other Python versions only through `uv run --isolated`, never in `.venv`.
 - Lock files change only through the tools that own them.
 
 ## Architecture
 
 - A CLI is a tree of nodes. The root nodes are `group` and `command`: a group contains groups and commands, and is never called their parent.
-- A parent node provides the value of exactly one function parameter. A child node processes the value of the parent above it. A rule relates inputs to each other, and a hook runs around a node.
-- Decorators are read top-down. A parent belongs to the root node above it, a child attaches to the nearest parent above it, and a rule or hook attaches to the nearest node of any kind above it.
+- A parent node provides the value of exactly one function parameter. A child node processes the value of the parent above it. A dependency relates inputs to each other, and a hook runs around a node.
+- Decorators are read top-down. A parent belongs to the root node above it, a child attaches to the nearest parent above it, and a hook attaches to the nearest node of any kind above it.
 - Types and defaults live only in the function signature, never on parent nodes.
 - Classes use CapWords and functions snake_case, as PEP 8 says. Node classes are no exception.
 - Node names are snake_case. What users type is derived from them: kebab-case for commands and flags, SCREAMING_SNAKE_CASE for environment variables.

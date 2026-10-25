@@ -16,6 +16,8 @@
 - `cliron.testing.run` takes `env`, the environment variables to run the CLI with in place of the test's own.
 - The `stdin` decorator fills a parameter from piped text, never waits for typing, and gives a list one item per line.
 - `cliron.testing.run` takes `input`, the text to pipe into the CLI.
+- The `dependencies` parameter of `command` and `group` relates inputs to each other with `dependency.requires`, `requires_any`, `conflicts`, `together`, `alone`, `at_least`, `at_most` and `exactly`, reports every broken dependency with the other input errors, and lists them under Dependencies in the help.
+- `cliron.testing.validate` reports dependencies that contradict or repeat each other.
 
 ### Changed
 

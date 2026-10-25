@@ -6,7 +6,8 @@ from typing import ClassVar, Protocol
 
 from cliron._builtin_options import DEFAULT_BUILTINS, Builtins
 from cliron._conversion import NUMBER, Converter
-from cliron._names import token
+from cliron._dependencies import Dependency, Given
+from cliron._names import closest, token
 from cliron._parents import Argument, Env, Parent, Stdin, display, flags
 
 _FINAL_LINE_BREAK = re.compile(r"\r?\n\Z")
@@ -35,8 +36,17 @@ class Input:
 
 
 class Definition:
-    def __init__(self, inputs: Iterable[Input]) -> None:
+    def __init__(
+        self, inputs: Iterable[Input], dependencies: Iterable[Dependency] = ()
+    ) -> None:
         self.inputs: tuple[Input, ...] = tuple(inputs)
+        self.dependencies: tuple[Dependency, ...] = tuple(dependencies)
+        self.labels: dict[str, str] = {
+            target.name: target.display for target in self.inputs
+        }
+        self.env: frozenset[str] = frozenset(
+            target.name for target in self.inputs if isinstance(target.parent, Env)
+        )
         self.options: dict[str, Input] = {
             flag: target for target in self.inputs for flag in flags(target.parent)
         }
@@ -107,6 +117,14 @@ class _Segment:
         if previous == 1 and not (target.multiple or target.counted):
             self.report(target, ValueError(f"{target.display} can only be given once."))
         self.occurrences[target.name] = previous + 1
+
+    def given(self) -> Given:
+        names = tuple(
+            target.name
+            for target in self.definition.inputs
+            if target.name in self.raw or self.occurrences.get(target.name, 0)
+        )
+        return Given(names, self.definition.env)
 
     def report(self, target: Input, error: Exception) -> None:
         self.input_errors.setdefault(target.name, []).append(error)
@@ -359,6 +377,13 @@ class _Reader:
                 values[target.name], problems = segment.resolve(target, command_path)
                 errors.extend(segment.input_errors.get(target.name, []))
                 errors.extend(problems)
+            given = segment.given()
+            label = segment.definition.labels.__getitem__
+            errors.extend(
+                ValueError(found.problem(given, label))
+                for found in segment.definition.dependencies
+                if not found.met(given)
+            )
             errors.extend(
                 error for _, error in sorted(segment.word_errors, key=itemgetter(0))
             )
@@ -421,17 +446,10 @@ def _closest_flag(flag: str, definition: Definition) -> str | None:
     names = {
         option[2:]: option for option in definition.options if option.startswith("--")
     }
-    match = _closest(flag[2:], names)
+    match = closest(flag[2:], names)
     return None if match is None else names[match]
 
 
 def _suggestion(word: str, candidates: Iterable[str]) -> str:
-    match = _closest(word, candidates)
+    match = closest(word, candidates)
     return "" if match is None else f" Did you mean {match!r}?"
-
-
-def _closest(word: str, candidates: Iterable[str]) -> str | None:
-    import difflib
-
-    matches = difflib.get_close_matches(word, list(candidates), n=1)
-    return matches[0] if matches else None

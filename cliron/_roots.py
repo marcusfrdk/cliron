@@ -13,8 +13,15 @@ from cliron._builtin_options import (
     version_option_for,
 )
 from cliron._conversion import SUPPORTED, converter_for, describe
+from cliron._dependencies import Dependency, cycle_problem, dependencies_for
 from cliron._help import render_help, terminal_width, usage_hint
-from cliron._names import check_name, is_parameter_name, parameter_suggestion, token
+from cliron._names import (
+    check_name,
+    closest,
+    is_parameter_name,
+    parameter_suggestion,
+    token,
+)
 from cliron._parents import (
     Argument,
     Env,
@@ -60,6 +67,7 @@ class Root:
         function: Callable[..., object],
         help_option: HelpOption | None = None,
         version_option: VersionOption | None = None,
+        dependencies: Sequence[Dependency] = (),
     ) -> None:
         """
         Turn a function into a command or group.
@@ -68,10 +76,12 @@ class Root:
         :param function: The function to run.
         :param help_option: The help flags, or ``None`` to inherit them.
         :param version_option: The version, or ``None`` to inherit it.
+        :param dependencies: The dependencies between the inputs.
         :raises TypeError: If ``function`` isn't a function, or a group has an
             argument or reads stdin.
         :raises ValueError: If two parents share a name, a flag or an
-            environment variable, or a command reads stdin twice.
+            environment variable, a command reads stdin twice, or a dependency
+            names an input the function doesn't have.
         """
         if not isinstance(function, FunctionType):
             message = f"@{self.kind} must decorate a function."
@@ -81,9 +91,11 @@ class Root:
         self.parents: tuple[Parent, ...] = parents_of(function)
         self.help_option: HelpOption | None = help_option
         self.version_option: VersionOption | None = version_option
+        self.dependencies: tuple[Dependency, ...] = tuple(dependencies)
         self.commands: dict[str, Command | Group] = {}
         self._definition: Definition | None = None
         self._check_parents()
+        self._check_dependency_names()
 
     def __call__(self) -> NoReturn:
         """
@@ -129,7 +141,7 @@ class Root:
         try:
             _check_builtin_flags(definition, builtins)
         except ValueError as error:
-            error.add_note(_location(self))
+            error.add_note(location(self))
             raise
         return builtins
 
@@ -160,6 +172,19 @@ class Root:
                 other = typed.setdefault(key, parent)
                 if other is not parent:
                     message = f"{key} is used by both {call(other)} and {call(parent)}."
+                    raise ValueError(message)
+
+    def _check_dependency_names(self) -> None:
+        names = [parent.name for parent in self.parents]
+        for found in self.dependencies:
+            for name in found.names:
+                if name not in names:
+                    match = closest(name, names)
+                    suggestion = "" if match is None else f" Did you mean {match!r}?"
+                    message = (
+                        f"{found.call} names {name!r}, which isn't an input of "
+                        f"{self.kind} '{token(self.name)}'.{suggestion}"
+                    )
                     raise ValueError(message)
 
 
@@ -197,6 +222,7 @@ def command(
     *,
     help_flags: bool | Sequence[str] = True,
     version: str | None = None,
+    dependencies: Sequence[Dependency] = (),
 ) -> Callable[[Callable[..., object]], Command]:
     """
     Turn a function into a command.
@@ -213,18 +239,25 @@ def command(
         turns help off.
     :param version: A version that ``--version`` prints, such as ``"1.4.0"``.
         ``None`` takes the enclosing group's.
+    :param dependencies: Dependencies between the inputs, such as
+        ``[dependency.together("user", "password")]``, checked after the inputs
+        are read.
     :returns: A decorator that turns a function into the command.
-    :raises TypeError: If ``name`` or ``version`` isn't a string, or
-        ``help_flags`` isn't a bool or a list of strings.
+    :raises TypeError: If ``name`` or ``version`` isn't a string,
+        ``help_flags`` isn't a bool or a list of strings, or ``dependencies``
+        isn't a list of dependencies.
     :raises ValueError: If ``name`` isn't snake_case, or a help flag isn't a
         short or long flag or is listed twice.
     """
     checked = check_name(name, "command")
     help_option = help_option_for(help_flags, "command")
     version_option = version_option_for(version, "command")
+    checked_dependencies = dependencies_for(dependencies, "command")
 
     def decorate(function: Callable[..., object]) -> Command:
-        return Command(checked, function, help_option, version_option)
+        return Command(
+            checked, function, help_option, version_option, checked_dependencies
+        )
 
     return decorate
 
@@ -234,6 +267,7 @@ def group(
     *,
     help_flags: bool | Sequence[str] = True,
     version: str | None = None,
+    dependencies: Sequence[Dependency] = (),
 ) -> Callable[[Callable[..., object]], Group]:
     """
     Turn a function into a group of commands.
@@ -250,18 +284,25 @@ def group(
     :param version: A version that ``--version`` prints, for the group and
         everything in it, such as ``"1.4.0"``. ``None`` takes the enclosing
         group's.
+    :param dependencies: Dependencies between the group's own inputs, such as
+        ``[dependency.together("user", "password")]``, checked after the inputs
+        are read.
     :returns: A decorator that turns a function into the group.
-    :raises TypeError: If ``name`` or ``version`` isn't a string, or
-        ``help_flags`` isn't a bool or a list of strings.
+    :raises TypeError: If ``name`` or ``version`` isn't a string,
+        ``help_flags`` isn't a bool or a list of strings, or ``dependencies``
+        isn't a list of dependencies.
     :raises ValueError: If ``name`` isn't snake_case, or a help flag isn't a
         short or long flag or is listed twice.
     """
     checked = check_name(name, "group")
     help_option = help_option_for(help_flags, "group")
     version_option = version_option_for(version, "group")
+    checked_dependencies = dependencies_for(dependencies, "group")
 
     def decorate(function: Callable[..., object]) -> Group:
-        return Group(checked, function, help_option, version_option)
+        return Group(
+            checked, function, help_option, version_option, checked_dependencies
+        )
 
     return decorate
 
@@ -373,15 +414,16 @@ def _render(node: Node, result: object) -> None:
 
 def _define(root: Root) -> Definition:
     try:
-        definition = Definition(_inputs(root))
+        definition = Definition(_inputs(root), root.dependencies)
         _check_arguments(definition.arguments)
+        _check_dependencies(definition)
     except Exception as error:
-        error.add_note(_location(root))
+        error.add_note(location(root))
         raise
     return definition
 
 
-def _location(root: Root) -> str:
+def location(root: Root) -> str:
     original = typing.cast("object", inspect.unwrap(root.function))
     code = (original if isinstance(original, FunctionType) else root.function).__code__
     return (
@@ -518,6 +560,21 @@ def _flag(parent: Flag, annotation: object, default: object) -> Input:
         "but a flag is a bool or an int."
     )
     raise TypeError(message)
+
+
+def _check_dependencies(definition: Definition) -> None:
+    required = {target.name for target in definition.inputs if target.required}
+    for found in definition.dependencies:
+        for name in found.names:
+            if name in required:
+                message = (
+                    f"{found.call} names {name!r}, which has no default, so it is "
+                    "always given. Give it a default, or change the dependency."
+                )
+                raise ValueError(message)
+    problem = cycle_problem(definition.dependencies, definition.labels)
+    if problem is not None:
+        raise ValueError(problem)
 
 
 def _check_arguments(arguments: tuple[Input, ...]) -> None:

@@ -64,15 +64,45 @@ def render_help(nodes: Sequence[Node], builtins: Builtins, width: int) -> str:
         for target in definition.inputs
         if isinstance(target.parent, Stdin)
     ]
-    tables.extend(
-        [("Environment", environment), ("Input", piped), ("Commands", commands)]
+    tables.extend([("Environment", environment), ("Input", piped)])
+    position = _help_position(
+        [*(row for _, rows in tables for row in rows), *commands], width
     )
-    position = _help_position([row for _, rows in tables for row in rows], width)
-    for title, rows in tables:
-        if rows:
-            lines = _table(rows, position, width)
-            sections.append("\n".join([f"{title}:", *lines]))
+    sections.extend(_tables(tables, position, width))
+    sections.extend(_dependency_sections(nodes, width))
+    sections.extend(_tables([("Commands", commands)], position, width))
     return "\n\n".join(sections) + "\n"
+
+
+def _tables(
+    tables: list[tuple[str, list[tuple[str, str]]]], position: int, width: int
+) -> list[str]:
+    return [
+        "\n".join([f"{title}:", *_table(rows, position, width)])
+        for title, rows in tables
+        if rows
+    ]
+
+
+def _dependency_sections(nodes: Sequence[Node], width: int) -> list[str]:
+    titled = [
+        ("Dependencies", nodes[-1]),
+        *(
+            (f"Dependencies for {node_path(nodes[: index + 1])}", group)
+            for index, group in enumerate(nodes[:-1])
+        ),
+    ]
+    sections: list[str] = []
+    for title, node in titled:
+        definition = node.definition()
+        label = definition.labels.__getitem__
+        lines = [
+            _fill(found.sentence(label), width, indent=4, first_indent=2)
+            for found in definition.dependencies
+        ]
+        if lines:
+            sections.append("\n".join([f"{title}:", *lines]))
+    return sections
 
 
 def terminal_width(stream: TextIO) -> int:
@@ -198,12 +228,13 @@ def _table(rows: list[tuple[str, str]], position: int, width: int) -> list[str]:
     return lines
 
 
-def _fill(text: str, width: int, indent: int = 0) -> str:
+def _fill(text: str, width: int, indent: int = 0, first_indent: int = 0) -> str:
     import textwrap
 
     return textwrap.fill(
         _words(text),
         width,
+        initial_indent=" " * first_indent,
         subsequent_indent=" " * indent,
         break_on_hyphens=False,
         break_long_words=False,

@@ -1,5 +1,6 @@
 import keyword
 import re
+from collections.abc import Iterable
 
 _SNAKE_CASE = re.compile(r"[a-z][a-z0-9]*(?:_[a-z0-9]+)*")
 _WORD = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z0-9]+")
@@ -88,6 +89,13 @@ def check_variable(variable: object) -> str | None:
         "and underscores, not starting with a digit, such as 'GITHUB_TOKEN'."
     )
     raise ValueError(message)
+
+
+def closest(word: str, candidates: Iterable[str]) -> str | None:
+    import difflib
+
+    matches = difflib.get_close_matches(word, list(candidates), n=1)
+    return matches[0] if matches else None
 
 
 def token(name: str) -> str:
