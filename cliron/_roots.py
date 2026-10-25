@@ -26,7 +26,9 @@ from cliron._conversion import (
     SUPPORTED,
     converter_for,
     describe,
+    fits_value,
     text_converter,
+    union_members,
     value_type,
 )
 from cliron._dependencies import Dependency, cycle_problem, dependencies_for
@@ -414,17 +416,62 @@ Shared = dict[type[object], object]
 
 def _run_span(path: list[tuple[Node, dict[str, object]]], shared: Shared) -> object:
     (node, values), *inside = path
-    _run_hooks(node, "start", shared)
+    entered = False
     try:
-        arguments = {**values, **_arguments(node.definition().injected, shared)}
-        if inside:
-            output = _run_around(node, arguments, inside, shared)
-        else:
-            output = node.function(**arguments)
+        try:
+            _run_hooks(node, "start", shared)
+            entered = True
+            arguments = {**values, **_arguments(node.definition().injected, shared)}
+            if inside:
+                output = _run_around(node, arguments, inside, shared)
+            else:
+                output = node.function(**arguments)
+        except Exception as error:
+            handler = _handler_for(node, error)
+            if handler is None:
+                raise
+            output = _handle(node, *handler, error, shared)
         _run_hooks(node, "success", shared)
     finally:
-        _run_hooks(node, "exit", shared)
+        if entered:
+            _run_hooks(node, "exit", shared)
     return output
+
+
+def _handler_for(node: Node, error: Exception) -> tuple[HookCall, str] | None:
+    if isinstance(error, MistakeError):
+        return None
+    for found in node.definition().hooks:
+        if found.exception is None:
+            continue
+        parameter, handles = found.exception
+        if isinstance(error, handles):
+            return found, parameter
+    return None
+
+
+def _handle(
+    node: Node, handler: HookCall, parameter: str, error: Exception, shared: Shared
+) -> object:
+    callback = handler.hook.callback
+    arguments = {**_arguments(handler.injected, shared), parameter: error}
+    result = typing.cast("object", callback(**arguments))
+    returns = node.definition().returns
+    if node.kind == "group" and result is not None:
+        problem = f"group '{token(node.name)}' has no result to replace. Return None."
+    elif node.kind == "command" and not fits_value(result, returns):
+        expected = describe(returns)
+        problem = (
+            f"command '{token(node.name)}' returns {expected}. "
+            f"Make it return {expected}."
+        )
+    else:
+        return result
+    message = (
+        f"hook function '{callback.__name__}' returned {describe(type(result))}, "
+        f"but {problem}"
+    )
+    raise _mistake(node, message) from None
 
 
 def _run_around(
@@ -614,11 +661,11 @@ def _definition(root: Root) -> Definition:
         )
         for parent in root.parents
     ]
-    hooks = [HookCall(found, _hook_parameters(found)) for found in root.hooks]
-    return Definition(inputs, root.dependencies, shared, hooks)
+    hooks = [_hook_call(found) for found in root.hooks]
+    return Definition(inputs, root.dependencies, shared, hooks, hints.get("return"))
 
 
-def _hook_parameters(found: Hook) -> dict[str, type[object]]:
+def _hook_call(found: Hook) -> HookCall:
     callback = found.callback
     name = callback.__name__
     if inspect.iscoroutinefunction(callback) or inspect.isasyncgenfunction(callback):
@@ -635,17 +682,70 @@ def _hook_parameters(found: Hook) -> dict[str, type[object]]:
         raise TypeError(message)
     hints: dict[str, object] = typing.get_type_hints(callback)
     taken: dict[str, type[object]] = {}
+    exceptions: list[tuple[str, tuple[type[BaseException], ...]]] = []
     for parameter in inspect.signature(callback).parameters.values():
-        kind = injected(hints.get(parameter.name))
-        if kind is None or parameter.kind in _UNSUPPORTED_KINDS:
+        annotation = hints.get(parameter.name)
+        handles = _exception_types(annotation)
+        kind = injected(annotation)
+        if parameter.kind not in _UNSUPPORTED_KINDS and handles is not None:
+            exceptions.append((parameter.name, handles))
+        elif parameter.kind not in _UNSUPPORTED_KINDS and kind is not None:
+            _take(taken, parameter.name, kind)
+        else:
+            receives = "an exception, " if found.event.name == "error" else ""
             message = (
                 f"hook function {name!r} takes parameter '{parameter.name}', but "
-                "a hook receives only Context and @state classes. Annotate it "
-                "with one, or remove it."
+                f"a hook receives only {receives}Context and @state classes. "
+                "Annotate it with one, or remove it."
             )
             raise TypeError(message)
-        _take(taken, parameter.name, kind)
-    return taken
+    return HookCall(found, taken, _handled(found, exceptions))
+
+
+def _exception_types(annotation: object) -> tuple[type[BaseException], ...] | None:
+    members = union_members(annotation)
+    if all(
+        isinstance(each, type) and issubclass(each, BaseException) for each in members
+    ):
+        return typing.cast("tuple[type[BaseException], ...]", members)
+    return None
+
+
+def _handled(
+    found: Hook, exceptions: list[tuple[str, tuple[type[BaseException], ...]]]
+) -> tuple[str, tuple[type[Exception], ...]] | None:
+    name = found.callback.__name__
+    if found.event.name != "error":
+        if exceptions:
+            message = (
+                f"hook function {name!r} takes the exception '{exceptions[0][0]}', "
+                "but only on.error() hooks receive one."
+            )
+            raise TypeError(message)
+        return None
+    if not exceptions:
+        message = (
+            f"hook function {name!r} handles no exception. Annotate one "
+            "parameter with the exceptions it handles, such as exc: ValueError."
+        )
+        raise TypeError(message)
+    if len(exceptions) > 1:
+        message = (
+            f"hook function {name!r} takes two exceptions, '{exceptions[0][0]}' "
+            f"and '{exceptions[1][0]}'. Annotate one parameter, with a union for "
+            "several, such as exc: ValueError | KeyError."
+        )
+        raise TypeError(message)
+    parameter, handles = exceptions[0]
+    for kind in handles:
+        if not issubclass(kind, Exception):
+            message = (
+                f"hook function {name!r} handles {kind.__name__}, which cliron "
+                "always lets through so that Ctrl+C and exits work. Handle "
+                "Exception or a subclass of it."
+            )
+            raise TypeError(message)
+    return parameter, typing.cast("tuple[type[Exception], ...]", handles)
 
 
 def _take(taken: dict[str, type[object]], name: str, kind: type[object]) -> None:

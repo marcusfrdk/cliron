@@ -61,11 +61,13 @@ class Definition:
         dependencies: Iterable[Dependency] = (),
         injected: Mapping[str, type[object]] | None = None,
         hooks: Iterable[HookCall] = (),
+        returns: object = None,
     ) -> None:
         self.inputs: tuple[Input, ...] = tuple(inputs)
         self.dependencies: tuple[Dependency, ...] = tuple(dependencies)
         self.injected: dict[str, type[object]] = dict(injected or {})
         self.hooks: tuple[HookCall, ...] = tuple(hooks)
+        self.returns: object = returns
         self.labels: dict[str, str] = {
             target.name: target.display for target in self.inputs
         }

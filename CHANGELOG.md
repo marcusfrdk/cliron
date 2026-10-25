@@ -33,6 +33,7 @@
 - A group's function that yields once runs the code after its `yield` when everything inside the group has finished, even on failure, and the command's output is printed only once every teardown has succeeded.
 - The `hook` decorator runs a function when a command or group starts, succeeds or exits, chosen with `on.start()`, `on.success()` and `on.exit()`, and a group's hooks wrap everything inside it.
 - `Context.values` holds the values of every command and group on the path, in the same order as `Context.path`.
+- `on.error()` hooks handle the exceptions that leave a command or group, chosen by the annotation of the handler's exception parameter, and a command's handler's return value becomes its result.
 
 ### Changed
 

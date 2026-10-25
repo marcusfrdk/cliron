@@ -7,7 +7,7 @@ from cliron._children import check_below
 from cliron._nodes import F, nodes_of, store
 from cliron._parents import Parent, call
 
-EventName = Literal["start", "success", "exit"]
+EventName = Literal["start", "success", "exit", "error"]
 
 
 @dataclass(frozen=True, repr=False)
@@ -47,6 +47,22 @@ class On:
         """
         return Event("exit")
 
+    def error(self) -> Event:
+        """
+        Handle an exception that leaves the command or group.
+
+        The hook's function takes the exception as the parameter annotated
+        with the exceptions it handles, such as ``exc: FileNotFoundError``,
+        and runs for the first matching handler on the node. It covers the
+        node's start hooks, its function and everything inside a group. When
+        it returns, the exception is handled: a command's handler's value
+        becomes the command's result, and a group's handler returns ``None``.
+        When it raises, the exception goes on to the nodes outside.
+
+        :returns: The event.
+        """
+        return Event("error")
+
 
 on = On()
 
@@ -70,6 +86,7 @@ class Hook:
 class HookCall:
     hook: Hook
     injected: dict[str, type[object]]
+    exception: tuple[str, tuple[type[Exception], ...]] | None = None
 
 
 def hook(event: Event, callback: Callable[..., object]) -> Callable[[F], F]:

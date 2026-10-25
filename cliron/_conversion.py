@@ -44,9 +44,17 @@ def converter_for(annotation: object) -> Converter | None:
 
 
 def describe(annotation: object) -> str:
+    if annotation is NoneType:
+        return "None"
     if isinstance(annotation, type):
         return annotation.__qualname__
     return repr(annotation)
+
+
+def union_members(annotation: object) -> tuple[object, ...]:
+    if _is_union(typing.get_origin(annotation)):
+        return typing.cast("tuple[object, ...]", typing.get_args(annotation))
+    return (annotation,)
 
 
 def _is_union(origin: object) -> bool:
