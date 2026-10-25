@@ -1,11 +1,9 @@
 import inspect
 import typing
 import weakref
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, TypeVar
-
-if TYPE_CHECKING:
-    from collections.abc import Mapping
+from typing import TypeVar
 
 T = TypeVar("T")
 
@@ -24,9 +22,12 @@ class Context:
 
     :ivar path: The command line's path to what runs, as users typed it, such
         as ``("notes", "tags", "rename-tag")``.
+    :ivar values: The values of each command and group on the path, in the
+        same order, by parameter name: ``ctx.values[-1]`` is the command's.
     """
 
     path: tuple[str, ...]
+    values: tuple[Mapping[str, object], ...]
 
 
 def state(cls: type[T]) -> type[T]:

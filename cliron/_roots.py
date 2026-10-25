@@ -3,7 +3,7 @@ import sys
 import typing
 from collections.abc import Callable, Generator, Sequence
 from dataclasses import replace
-from types import FunctionType, NoneType
+from types import FunctionType, MappingProxyType, NoneType
 from typing import ClassVar, NoReturn
 
 from cliron._builtin_options import (
@@ -31,6 +31,7 @@ from cliron._conversion import (
 )
 from cliron._dependencies import Dependency, cycle_problem, dependencies_for
 from cliron._help import render_help, terminal_width, usage_hint
+from cliron._hooks import EventName, Hook, HookCall, hooks_of
 from cliron._names import (
     check_name,
     closest,
@@ -118,6 +119,7 @@ class Root:
         self.function: FunctionType = function
         self.parents: tuple[Parent, ...] = parents_of(function)
         self.children: dict[str, tuple[AnyChild, ...]] = children_of(function)
+        self.hooks: tuple[Hook, ...] = hooks_of(function)
         self.help_option: HelpOption | None = help_option
         self.version_option: VersionOption | None = version_option
         self.dependencies: tuple[Dependency, ...] = tuple(dependencies)
@@ -397,25 +399,73 @@ def main(root: Node, args: list[str]) -> int:
         if hint is not None:
             _ = sys.stderr.write(hint + "\n")
         return 2
-    path = tuple(token(node.name) for node, _ in parsed.path)
-    shared: dict[type[object], object] = {Context: Context(path)}
-    *groups, (leaf, values) = parsed.path
-    opened: list[tuple[Node, Teardown]] = []
-    try:
-        for node, group_values in groups:
-            teardown = _run_group(node, _with_shared(node, group_values, shared))
-            if teardown is not None:
-                opened.append((node, teardown))
-        output = leaf.function(**_with_shared(leaf, values, shared))
-    except BaseException as error:
-        _tear_down(opened, error)
-        raise
-    _tear_down(opened, None)
-    _render(leaf, output)
+    context = Context(
+        tuple(token(node.name) for node, _ in parsed.path),
+        tuple(MappingProxyType(dict(values)) for _, values in parsed.path),
+    )
+    output = _run_span(parsed.path, {Context: context})
+    _render(parsed.path[-1][0], output)
     return 0
 
 
 Teardown = Generator[object, None, object]
+Shared = dict[type[object], object]
+
+
+def _run_span(path: list[tuple[Node, dict[str, object]]], shared: Shared) -> object:
+    (node, values), *inside = path
+    _run_hooks(node, "start", shared)
+    try:
+        arguments = {**values, **_arguments(node.definition().injected, shared)}
+        if inside:
+            output = _run_around(node, arguments, inside, shared)
+        else:
+            output = node.function(**arguments)
+        _run_hooks(node, "success", shared)
+    finally:
+        _run_hooks(node, "exit", shared)
+    return output
+
+
+def _run_around(
+    node: Node,
+    arguments: dict[str, object],
+    inside: list[tuple[Node, dict[str, object]]],
+    shared: Shared,
+) -> object:
+    teardown = _run_group(node, arguments)
+    try:
+        output = _run_span(inside, shared)
+    except BaseException as error:
+        if teardown is not None:
+            _finish(node, teardown, error)
+        raise
+    if teardown is not None:
+        _finish(node, teardown, None)
+    return output
+
+
+def _run_hooks(node: Node, event: EventName, shared: Shared) -> None:
+    for found in node.definition().hooks:
+        if found.hook.event.name != event:
+            continue
+        callback = found.hook.callback
+        result = typing.cast("object", callback(**_arguments(found.injected, shared)))
+        if result is not None:
+            message = (
+                f"hook function '{callback.__name__}' returned "
+                f"{type(result).__name__}, but a hook must return None."
+            )
+            raise _mistake(node, message)
+
+
+def _arguments(injected: dict[str, type[object]], shared: Shared) -> dict[str, object]:
+    arguments: dict[str, object] = {}
+    for name, kind in injected.items():
+        if kind not in shared:
+            shared[kind] = kind()
+        arguments[name] = shared[kind]
+    return arguments
 
 
 def _run_group(node: Node, arguments: dict[str, object]) -> Teardown | None:
@@ -441,20 +491,6 @@ def _run_group(node: Node, arguments: dict[str, object]) -> Teardown | None:
         )
         raise _mistake(node, message)
     return teardown
-
-
-def _tear_down(
-    opened: list[tuple[Node, Teardown]], error: BaseException | None
-) -> None:
-    if not opened:
-        return
-    *outer, (node, teardown) = opened
-    try:
-        _finish(node, teardown, error)
-    except BaseException as raised:
-        _tear_down(outer, raised)
-        raise
-    _tear_down(outer, error)
 
 
 def _finish(node: Node, teardown: Teardown, error: BaseException | None) -> None:
@@ -485,17 +521,6 @@ def _mistake(node: Node, message: str) -> MistakeError:
     error = TypeError(message)
     error.add_note(location(node))
     return MistakeError(error)
-
-
-def _with_shared(
-    node: Node, values: dict[str, object], shared: dict[type[object], object]
-) -> dict[str, object]:
-    arguments = dict(values)
-    for name, kind in node.definition().injected.items():
-        if kind not in shared:
-            shared[kind] = kind()
-        arguments[name] = shared[kind]
-    return arguments
 
 
 def _answer(request: Request) -> int:
@@ -589,7 +614,49 @@ def _definition(root: Root) -> Definition:
         )
         for parent in root.parents
     ]
-    return Definition(inputs, root.dependencies, shared)
+    hooks = [HookCall(found, _hook_parameters(found)) for found in root.hooks]
+    return Definition(inputs, root.dependencies, shared, hooks)
+
+
+def _hook_parameters(found: Hook) -> dict[str, type[object]]:
+    callback = found.callback
+    name = callback.__name__
+    if inspect.iscoroutinefunction(callback) or inspect.isasyncgenfunction(callback):
+        message = (
+            f"hook function {name!r} is async, "
+            "and cliron doesn't run async functions yet."
+        )
+        raise TypeError(message)
+    if inspect.isgeneratorfunction(callback):
+        message = (
+            f"hook function {name!r} is a generator. Run code before and after "
+            "with on.start() and on.exit() hooks, or yield in a group's function."
+        )
+        raise TypeError(message)
+    hints: dict[str, object] = typing.get_type_hints(callback)
+    taken: dict[str, type[object]] = {}
+    for parameter in inspect.signature(callback).parameters.values():
+        kind = injected(hints.get(parameter.name))
+        if kind is None or parameter.kind in _UNSUPPORTED_KINDS:
+            message = (
+                f"hook function {name!r} takes parameter '{parameter.name}', but "
+                "a hook receives only Context and @state classes. Annotate it "
+                "with one, or remove it."
+            )
+            raise TypeError(message)
+        _take(taken, parameter.name, kind)
+    return taken
+
+
+def _take(taken: dict[str, type[object]], name: str, kind: type[object]) -> None:
+    for other, already in taken.items():
+        if already is kind:
+            message = (
+                f"parameters '{other}' and '{name}' both take {kind.__name__}. "
+                "Keep one."
+            )
+            raise TypeError(message)
+    taken[name] = kind
 
 
 def _shared_parameters(root: Root, hints: dict[str, object]) -> dict[str, type[object]]:
@@ -598,13 +665,6 @@ def _shared_parameters(root: Root, hints: dict[str, object]) -> dict[str, type[o
         kind = injected(annotation)
         if name == "return" or kind is None:
             continue
-        for other, taken in found.items():
-            if taken is kind:
-                message = (
-                    f"parameters '{other}' and '{name}' both take "
-                    f"{kind.__name__}. Keep one."
-                )
-                raise TypeError(message)
         for parent in root.parents:
             if parent.name == name:
                 message = (
@@ -612,7 +672,7 @@ def _shared_parameters(root: Root, hints: dict[str, object]) -> dict[str, type[o
                     f"parent. Remove {call(parent)}."
                 )
                 raise TypeError(message)
-        found[name] = kind
+        _take(found, name, kind)
     return found
 
 

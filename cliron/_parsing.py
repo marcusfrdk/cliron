@@ -11,6 +11,7 @@ from cliron._builtin_options import DEFAULT_BUILTINS, Builtins
 from cliron._children import AnyChild, run_child
 from cliron._conversion import NUMBER, Converter, describe, fits_value
 from cliron._dependencies import Dependency, Given
+from cliron._hooks import HookCall
 from cliron._names import closest, long_flag, token
 from cliron._parents import Argument, Env, Parent, Stdin, call, flags
 
@@ -59,10 +60,12 @@ class Definition:
         inputs: Iterable[Input],
         dependencies: Iterable[Dependency] = (),
         injected: Mapping[str, type[object]] | None = None,
+        hooks: Iterable[HookCall] = (),
     ) -> None:
         self.inputs: tuple[Input, ...] = tuple(inputs)
         self.dependencies: tuple[Dependency, ...] = tuple(dependencies)
         self.injected: dict[str, type[object]] = dict(injected or {})
+        self.hooks: tuple[HookCall, ...] = tuple(hooks)
         self.labels: dict[str, str] = {
             target.name: target.display for target in self.inputs
         }
