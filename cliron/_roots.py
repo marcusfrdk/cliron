@@ -21,6 +21,7 @@ from cliron._children import (
     misfit,
     run_child,
 )
+from cliron._context import Context, injected
 from cliron._conversion import (
     SUPPORTED,
     converter_for,
@@ -393,9 +394,11 @@ def main(root: Node, args: list[str]) -> int:
         if hint is not None:
             _ = sys.stderr.write(hint + "\n")
         return 2
+    path = tuple(token(node.name) for node, _ in parsed.path)
+    shared: dict[type[object], object] = {Context: Context(path)}
     *groups, (leaf, values) = parsed.path
     for node, group_values in groups:
-        result = node.function(**group_values)
+        result = node.function(**_with_shared(node, group_values, shared))
         if result is not None:
             message = (
                 f"group '{token(node.name)}' returned {type(result).__name__}, "
@@ -405,8 +408,19 @@ def main(root: Node, args: list[str]) -> int:
             error = TypeError(message)
             error.add_note(location(node))
             raise MistakeError(error)
-    _render(leaf, leaf.function(**values))
+    _render(leaf, leaf.function(**_with_shared(leaf, values, shared)))
     return 0
+
+
+def _with_shared(
+    node: Node, values: dict[str, object], shared: dict[type[object], object]
+) -> dict[str, object]:
+    arguments = dict(values)
+    for name, kind in node.definition().injected.items():
+        if kind not in shared:
+            shared[kind] = kind()
+        arguments[name] = shared[kind]
+    return arguments
 
 
 def _answer(request: Request) -> int:
@@ -461,7 +475,7 @@ def _render(node: Node, result: object) -> None:
 
 def _define(root: Root) -> Definition:
     try:
-        definition = Definition(_inputs(root), root.dependencies)
+        definition = _definition(root)
         _check_arguments(definition.arguments)
         _check_dependencies(root, definition)
     except Exception as error:
@@ -470,7 +484,7 @@ def _define(root: Root) -> Definition:
     return definition
 
 
-def _inputs(root: Root) -> list[Input]:
+def _definition(root: Root) -> Definition:
     function = root.function
     if inspect.iscoroutinefunction(function) or inspect.isasyncgenfunction(function):
         message = (
@@ -486,9 +500,11 @@ def _inputs(root: Root) -> list[Input]:
         raise TypeError(message)
     parameters = inspect.signature(function).parameters
     hints: dict[str, object] = typing.get_type_hints(function, include_extras=True)
+    shared = _shared_parameters(root, hints)
     for parameter in parameters.values():
-        _check_parameter(root, parameter)
-    return [
+        if parameter.name not in shared:
+            _check_parameter(root, parameter, hints.get(parameter.name))
+    inputs = [
         _input(
             parent,
             parameters.get(parent.name),
@@ -497,9 +513,36 @@ def _inputs(root: Root) -> list[Input]:
         )
         for parent in root.parents
     ]
+    return Definition(inputs, root.dependencies, shared)
 
 
-def _check_parameter(root: Root, parameter: inspect.Parameter) -> None:
+def _shared_parameters(root: Root, hints: dict[str, object]) -> dict[str, type[object]]:
+    found: dict[str, type[object]] = {}
+    for name, annotation in hints.items():
+        kind = injected(annotation)
+        if name == "return" or kind is None:
+            continue
+        for other, taken in found.items():
+            if taken is kind:
+                message = (
+                    f"parameters '{other}' and '{name}' both take "
+                    f"{kind.__name__}. Keep one."
+                )
+                raise TypeError(message)
+        for parent in root.parents:
+            if parent.name == name:
+                message = (
+                    f"parameter '{name}' takes {kind.__name__}, so it has no "
+                    f"parent. Remove {call(parent)}."
+                )
+                raise TypeError(message)
+        found[name] = kind
+    return found
+
+
+def _check_parameter(
+    root: Root, parameter: inspect.Parameter, annotation: object
+) -> None:
     name = parameter.name
     if parameter.kind in _UNSUPPORTED_KINDS:
         parent = "option" if root.kind == "group" else "argument"
@@ -511,6 +554,13 @@ def _check_parameter(root: Root, parameter: inspect.Parameter) -> None:
         message = (
             f"parameter '{name}' has no parent. cliron calls plain functions, "
             "not methods, so define the function outside a class."
+        )
+    elif _could_be_state(annotation):
+        kind = typing.cast("type[object]", annotation).__name__
+        message = (
+            f"parameter '{name}' has no parent, and cliron can't convert {kind}. "
+            f"Mark {kind} with @state to share one per run, or add a parent above "
+            "the function."
         )
     elif is_parameter_name(name):
         message = (
@@ -524,6 +574,14 @@ def _check_parameter(root: Root, parameter: inspect.Parameter) -> None:
             f"snake_case. Rename the parameter to {suggestion}."
         )
     raise TypeError(message)
+
+
+def _could_be_state(annotation: object) -> bool:
+    return (
+        isinstance(annotation, type)
+        and annotation.__module__ != "builtins"
+        and converter_for(annotation) is None
+    )
 
 
 def _in_class(function: FunctionType) -> bool:

@@ -55,10 +55,14 @@ class Input:
 
 class Definition:
     def __init__(
-        self, inputs: Iterable[Input], dependencies: Iterable[Dependency] = ()
+        self,
+        inputs: Iterable[Input],
+        dependencies: Iterable[Dependency] = (),
+        injected: Mapping[str, type[object]] | None = None,
     ) -> None:
         self.inputs: tuple[Input, ...] = tuple(inputs)
         self.dependencies: tuple[Dependency, ...] = tuple(dependencies)
+        self.injected: dict[str, type[object]] = dict(injected or {})
         self.labels: dict[str, str] = {
             target.name: target.display for target in self.inputs
         }

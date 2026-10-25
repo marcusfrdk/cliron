@@ -28,6 +28,8 @@
 - `Parent` and `parent` let you write your own parents, which load a parameter's text from anywhere, as a subclass with `load`, `label` and `missing` methods or as a function that takes the parameter's name.
 - Every parent, built-in or your own, is a `Parent`, so `isinstance` recognizes all of them.
 - Errors and help name an option or flag that has a short flag by both flags, such as `-k/--keep`.
+- A function's parameter annotated `Context` receives the path of the run, as users typed it.
+- The `state` decorator marks a class for your own data: every parameter annotated with it receives the run's one instance, so groups and commands can share it.
 
 ### Changed
 
