@@ -19,6 +19,7 @@
 - The `dependencies` parameter of `command` and `group` relates inputs to each other with `dependency.requires`, `requires_any`, `conflicts`, `together`, `alone`, `at_least`, `at_most` and `exactly`, reports every broken dependency with the other input errors, and lists them under Dependencies in the help.
 - `cliron.testing.validate` reports dependencies that contradict or repeat each other.
 - A mistake in a CLI's definition that is found when it runs is printed as an error that says where the mistake is, instead of a traceback, and exits with 1.
+- The `between`, `choices`, `length` and `matches` decorators check a parameter's value below its parent, and help shows what they accept.
 
 ### Changed
 

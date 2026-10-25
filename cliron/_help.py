@@ -2,11 +2,10 @@ import inspect
 import os
 import re
 from collections.abc import Sequence
-from enum import Enum
 from typing import TextIO, cast
 
 from cliron._builtin_options import Builtins
-from cliron._conversion import typed_member
+from cliron._conversion import shown
 from cliron._names import placeholder
 from cliron._parents import Env, Flag, Option, Stdin
 from cliron._parsing import Input, Node, node_path
@@ -173,6 +172,9 @@ def _option_row(target: Input) -> tuple[str, str]:
 
 def _describe(target: Input, *, show_required: bool) -> str:
     parts = [_words(target.parent.help or "")]
+    parts.extend(
+        sentence for child in target.children if (sentence := child.sentence())
+    )
     if target.multiple or target.counted:
         piped = isinstance(target.parent, Stdin)
         parts.append("One per line." if piped else "Repeatable.")
@@ -188,16 +190,10 @@ def _describe(target: Input, *, show_required: bool) -> str:
 def _format_default(value: object) -> str | None:
     if value is None:
         return None
-    if isinstance(value, Enum):
-        return typed_member(value)
     if isinstance(value, list | tuple):
         items = [_format_default(item) for item in cast("Sequence[object]", value)]
         return ", ".join(item for item in items if item is not None) or None
-    if isinstance(value, str) and (
-        not value or not value.isprintable() or value != value.strip()
-    ):
-        return repr(value)
-    return str(value)
+    return shown(value)
 
 
 def _help_position(rows: list[tuple[str, str]], width: int) -> int:

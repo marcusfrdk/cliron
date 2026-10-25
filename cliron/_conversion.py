@@ -74,6 +74,26 @@ def _scalar(annotation: object) -> Converter | None:
     return None
 
 
+def value_type(annotation: object) -> object:
+    origin: object = typing.get_origin(annotation)
+    arguments: tuple[object, ...] = typing.get_args(annotation)
+    if _is_union(origin):
+        return value_type(next(item for item in arguments if item is not NoneType))
+    if origin is list or origin is tuple:
+        return arguments[0]
+    return annotation
+
+
+def shown(value: object) -> str:
+    if isinstance(value, Enum):
+        return typed_member(value)
+    if isinstance(value, str) and (
+        not value or not value.isprintable() or value != value.strip()
+    ):
+        return repr(value)
+    return str(value)
+
+
 def typed_member(member: Enum) -> str:
     return token(member.name.lower())
 

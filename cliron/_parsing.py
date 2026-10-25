@@ -5,6 +5,7 @@ from operator import itemgetter
 from typing import ClassVar, Protocol
 
 from cliron._builtin_options import DEFAULT_BUILTINS, Builtins
+from cliron._children import Child, first_problem
 from cliron._conversion import NUMBER, Converter
 from cliron._dependencies import Dependency, Given
 from cliron._names import closest, token
@@ -27,6 +28,7 @@ class Input:
     default: object = None
     required: bool = False
     counted: bool = False
+    children: tuple[Child, ...] = ()
 
     @property
     def name(self) -> str:
@@ -152,18 +154,10 @@ class _Segment:
     def resolve(self, target: Input, path: str) -> tuple[object, list[Exception]]:
         converter = target.converter
         if converter is None:
-            count = self.occurrences.get(target.name, 0)
-            return (count if target.counted else count > 0), []
-        if isinstance(target.parent, Env | Stdin):
-            try:
-                text = target.parent.read()
-            except UnicodeDecodeError as error:
-                message = (
-                    f"{target.display}: the input isn't valid {error.encoding} text."
-                )
-                return None, [ValueError(message)]
-            if text is not None:
-                self.raw[target.name] = _words(target, text)
+            return self._resolve_flag(target)
+        unreadable = self._read_outside(target)
+        if unreadable is not None:
+            return None, [unreadable]
         raw = self.raw.get(target.name)
         if raw is None:
             if target.required and target.name not in self.input_errors:
@@ -173,12 +167,32 @@ class _Segment:
         problems: list[Exception] = []
         for line, word in enumerate(raw, start=1):
             try:
-                values.append(converter.convert(word))
+                values.append(_value(target, converter, word))
             except ValueError as error:
                 problems.append(ValueError(f"{_label(target, line)}: {error}"))
         if converter.collect is not None:
             return converter.collect(values), problems
         return (values[0] if values else None), problems
+
+    def _resolve_flag(self, target: Input) -> tuple[object, list[Exception]]:
+        count = self.occurrences.get(target.name, 0)
+        value = count if target.counted else count > 0
+        problem = first_problem(target.children, value) if count else None
+        if problem is None:
+            return value, []
+        return value, [ValueError(f"{target.display}: {count} {problem}.")]
+
+    def _read_outside(self, target: Input) -> Exception | None:
+        if not isinstance(target.parent, Env | Stdin):
+            return None
+        try:
+            text = target.parent.read()
+        except UnicodeDecodeError as error:
+            message = f"{target.display}: the input isn't valid {error.encoding} text."
+            return ValueError(message)
+        if text is not None:
+            self.raw[target.name] = _words(target, text)
+        return None
 
 
 class _Reader:
@@ -402,6 +416,15 @@ class _Reader:
 
 def _is_option(word: str) -> bool:
     return word.startswith("-") and word != "-" and not NUMBER.fullmatch(word)
+
+
+def _value(target: Input, converter: Converter, word: str) -> object:
+    value = converter.convert(word)
+    problem = first_problem(target.children, value)
+    if problem is not None:
+        message = f"{word!r} {problem}."
+        raise ValueError(message)
+    return value
 
 
 def _words(target: Input, text: str) -> list[str]:

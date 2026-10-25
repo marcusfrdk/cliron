@@ -10,7 +10,20 @@ from typing import Literal
 
 import pytest
 
-from cliron import argument, command, dependency, env, flag, group, option, stdin
+from cliron import (
+    argument,
+    between,
+    choices,
+    command,
+    dependency,
+    env,
+    flag,
+    group,
+    length,
+    matches,
+    option,
+    stdin,
+)
 from cliron.testing import run, validate
 
 Check = Callable[..., object]
@@ -3024,3 +3037,93 @@ def test_dependencies_come_after_environment_and_input() -> None:
         "Input",
         "Dependencies",
     ]
+
+
+def test_help_shows_what_children_accept() -> None:
+    @command("backup")
+    @option("archive_format", "-f", help="Archive format.")
+    @choices(("zip", "tar", "gztar", "bztar", "xztar"))
+    @option("label", "-l", help="Added to the archive name.")
+    @matches(r"[a-z0-9-]+")
+    @length(high=20)
+    @option("keep", "-k", help="How many archives to keep.")
+    @between(1, 100)
+    @option("workers", "-w", help="Parallel workers.")
+    @between(low=1)
+    def backup(
+        archive_format: str = "gztar",
+        label: str | None = None,
+        keep: int = 10,
+        workers: int = 4,
+    ) -> None:
+        """Archive the current directory."""
+        _ = (archive_format, label, keep, workers)
+
+    result = run(backup, ["--help"])
+
+    assert result.stdout == (
+        "Usage: backup [OPTIONS]\n"
+        "\n"
+        "Archive the current directory.\n"
+        "\n"
+        "Options:\n"
+        "  -f, --archive-format [zip|tar|gztar|bztar|xztar]\n"
+        "                        Archive format. (default: gztar)\n"
+        "  -l, --label TEXT      Added to the archive name. Must match [a-z0-9-]+. At\n"
+        "                        most 20 characters.\n"
+        "  -k, --keep INT        How many archives to keep. 1 to 100. (default: 10)\n"
+        "  -w, --workers INT     Parallel workers. At least 1. (default: 4)\n"
+        "  -h, --help            Show this help and exit.\n"
+    )
+
+
+def test_help_sentences_for_each_kind_of_bound() -> None:
+    @command("pick")
+    @option("percent")
+    @between(high=100)
+    @option("since")
+    @between(date(2020, 1, 1), date(2030, 12, 31))
+    @option("user")
+    @length(3, 20)
+    @option("phrase")
+    @length(low=12)
+    @option("nickname")
+    @length(low=1)
+    def pick(
+        percent: int = 50,
+        since: date | None = None,
+        user: str = "ada",
+        phrase: str | None = None,
+        nickname: str = "a",
+    ) -> None:
+        _ = (percent, since, user, phrase, nickname)
+
+    lines = run(pick, ["--help"]).stdout.splitlines()
+
+    assert [line.split(maxsplit=2)[2] for line in lines[3:8]] == [
+        "At most 100. (default: 50)",
+        "2020-01-01 to 2030-12-31.",
+        "3 to 20 characters. (default: ada)",
+        "At least 12 characters.",
+        "At least 1 character. (default: a)",
+    ]
+
+
+def test_choices_replace_the_placeholder_of_every_kind_of_input() -> None:
+    @command("pack")
+    @argument("archive_format")
+    @choices({"zip", "tar"})
+    @env("level")
+    @choices(1, 2, 3)
+    @stdin("names")
+    @choices("ada", "bob")
+    def pack(archive_format: str, level: int = 1, names: tuple[str, ...] = ()) -> None:
+        """Pack files."""
+        _ = (archive_format, level, names)
+
+    result = run(pack, ["--help"])
+
+    assert "  ARCHIVE_FORMAT [tar|zip]\n" in result.stdout
+    assert "  LEVEL [1|2|3]" in result.stdout
+    assert "  stdin [ada|bob]" in result.stdout
+    assert "One per line." in result.stdout

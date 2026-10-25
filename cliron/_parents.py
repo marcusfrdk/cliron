@@ -4,7 +4,7 @@ import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from types import FunctionType
-from typing import ClassVar, TextIO, TypeVar, cast
+from typing import ClassVar, TextIO
 
 from cliron._names import (
     check_parameter_name,
@@ -13,10 +13,7 @@ from cliron._names import (
     long_flag,
     placeholder,
 )
-
-F = TypeVar("F", bound=Callable[..., object])
-
-_PARENTS = "__cliron_parents__"
+from cliron._nodes import F, nodes_of, store
 
 
 @dataclass(frozen=True)
@@ -68,6 +65,8 @@ class Stdin:
 
 Parent = Argument | Option | Flag | Env | Stdin
 
+PARENT_KINDS = (Argument, Option, Flag, Env, Stdin)
+
 
 def display(parent: Parent) -> str:
     if isinstance(parent, Argument):
@@ -92,12 +91,14 @@ def call(parent: Parent) -> str:
 
 
 def parents_of(function: FunctionType) -> tuple[Parent, ...]:
-    return cast("tuple[Parent, ...]", vars(function).get(_PARENTS, ()))
+    return tuple(
+        record for record in nodes_of(function) if isinstance(record, PARENT_KINDS)
+    )
 
 
 def _attach(parent: Parent) -> Callable[[F], F]:
     def decorate(function: F) -> F:
-        _store(parent, function)
+        store(parent, function, parent.decorator)
         return function
 
     return decorate
@@ -235,13 +236,3 @@ def _check_help(help: object, decorator: str) -> str | None:
         f'@{decorator} takes help as a string, such as help="How many.", not {help!r}.'
     )
     raise TypeError(message)
-
-
-def _store(parent: Parent, function: object) -> None:
-    if not isinstance(function, FunctionType):
-        message = (
-            f"@{parent.decorator} must decorate a function, "
-            "so it goes below @command or @group."
-        )
-        raise TypeError(message)
-    vars(function)[_PARENTS] = (parent, *parents_of(function))

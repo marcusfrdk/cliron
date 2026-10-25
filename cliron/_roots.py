@@ -2,6 +2,7 @@ import inspect
 import sys
 import typing
 from collections.abc import Callable, Sequence
+from dataclasses import replace
 from types import FunctionType, NoneType
 from typing import ClassVar, NoReturn
 
@@ -12,7 +13,8 @@ from cliron._builtin_options import (
     help_option_for,
     version_option_for,
 )
-from cliron._conversion import SUPPORTED, converter_for, describe
+from cliron._children import Child, Choices, children_of
+from cliron._conversion import SUPPORTED, converter_for, describe, shown, value_type
 from cliron._dependencies import Dependency, cycle_problem, dependencies_for
 from cliron._help import render_help, terminal_width, usage_hint
 from cliron._names import (
@@ -91,6 +93,7 @@ class Root:
         self.name: str = name
         self.function: FunctionType = function
         self.parents: tuple[Parent, ...] = parents_of(function)
+        self.children: dict[str, tuple[Child, ...]] = children_of(function)
         self.help_option: HelpOption | None = help_option
         self.version_option: VersionOption | None = version_option
         self.dependencies: tuple[Dependency, ...] = tuple(dependencies)
@@ -473,7 +476,13 @@ def _inputs(root: Root) -> list[Input]:
     for parameter in parameters.values():
         _check_parameter(root, parameter)
     return [
-        _input(parent, parameters.get(parent.name), hints) for parent in root.parents
+        _input(
+            parent,
+            parameters.get(parent.name),
+            hints,
+            root.children.get(parent.name, ()),
+        )
+        for parent in root.parents
     ]
 
 
@@ -510,7 +519,10 @@ def _in_class(function: FunctionType) -> bool:
 
 
 def _input(
-    parent: Parent, parameter: inspect.Parameter | None, hints: dict[str, object]
+    parent: Parent,
+    parameter: inspect.Parameter | None,
+    hints: dict[str, object],
+    children: tuple[Child, ...],
 ) -> Input:
     if parameter is None:
         message = (
@@ -526,7 +538,7 @@ def _input(
     annotation = hints[parent.name]
     default = typing.cast("object", parameter.default)
     if isinstance(parent, Flag):
-        return _flag(parent, annotation, default)
+        return _checked(_flag(parent, annotation, default), annotation, children)
     if annotation is bool:
         if isinstance(parent, Env):
             message = (
@@ -553,9 +565,56 @@ def _input(
         )
         raise TypeError(message)
     required = default is inspect.Parameter.empty
-    return Input(
+    target = Input(
         parent, converter, default=None if required else default, required=required
     )
+    return _checked(target, annotation, children)
+
+
+def _checked(target: Input, annotation: object, children: tuple[Child, ...]) -> Input:
+    base = value_type(annotation)
+    for child in children:
+        if base is bool:
+            message = (
+                f"{child.call} is below {call(target.parent)}, a bool, "
+                "which has nothing to check. Remove it."
+            )
+            raise TypeError(message)
+        misfit = child.misfit(base, target.name)
+        if misfit is not None:
+            raise TypeError(misfit)
+    converter = target.converter
+    listed = next((child for child in children if isinstance(child, Choices)), None)
+    if converter is not None and listed is not None:
+        converter = replace(
+            converter, metavar=f"[{'|'.join(listed.labels)}]", choices=listed.labels
+        )
+    checked = replace(target, converter=converter, children=children)
+    _check_default(checked)
+    return checked
+
+
+def _check_default(target: Input) -> None:
+    default = target.default
+    if target.required or default is None:
+        return
+    several = isinstance(default, list | tuple)
+    items = typing.cast("Sequence[object]", default) if several else (default,)
+    for child in target.children:
+        for item in items:
+            problem = child.problem(item)
+            if problem is not None:
+                shown_item = repr(item) if isinstance(item, str) else shown(item)
+                where = (
+                    f"has {shown_item} in its default"
+                    if several
+                    else f"defaults to {shown_item}"
+                )
+                message = (
+                    f"parameter '{target.name}' {where}, which {problem}. "
+                    f"Change the default or the {child.noun}."
+                )
+                raise ValueError(message)
 
 
 def _flag(parent: Flag, annotation: object, default: object) -> Input:

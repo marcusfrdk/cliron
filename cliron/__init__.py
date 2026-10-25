@@ -3,6 +3,7 @@
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
+    from cliron._children import between, choices, length, matches
     from cliron._dependencies import dependency
     from cliron._parents import argument, env, flag, option, stdin
     from cliron._roots import command, group
@@ -10,11 +11,15 @@ if TYPE_CHECKING:
 __all__ = [
     "__version__",
     "argument",
+    "between",
+    "choices",
     "command",
     "dependency",
     "env",
     "flag",
     "group",
+    "length",
+    "matches",
     "option",
     "stdin",
 ]
@@ -23,11 +28,15 @@ __version__: str
 
 _MODULES = {
     "argument": "cliron._parents",
+    "between": "cliron._children",
+    "choices": "cliron._children",
     "command": "cliron._roots",
     "dependency": "cliron._dependencies",
     "env": "cliron._parents",
     "flag": "cliron._parents",
     "group": "cliron._roots",
+    "length": "cliron._children",
+    "matches": "cliron._children",
     "option": "cliron._parents",
     "stdin": "cliron._parents",
 }
