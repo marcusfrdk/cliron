@@ -1,5 +1,4 @@
 import os
-import pty
 import select
 import shutil
 import subprocess
@@ -164,7 +163,7 @@ def zsh(path: Path, typed: str, cwd: Path) -> str:
         "PS1='$ '",
     ]
     _ = (home / ".zshrc").write_text("\n".join(lines) + "\n", encoding="utf-8")
-    descriptor, terminal = pty.openpty()
+    descriptor, terminal = os.openpty()
     process = subprocess.Popen(
         [ZSH, "--no-globalrcs", "-i"],
         stdin=terminal,
