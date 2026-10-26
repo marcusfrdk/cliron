@@ -308,6 +308,27 @@ def test_zsh_completes_in_a_real_terminal(
     assert zsh(path, typed, place) == completed
 
 
+@POSIX
+@pytest.mark.skipif(ZSH is None, reason="needs zsh")
+def test_zsh_without_compinit_says_how_to_load_it(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    assert ZSH is not None
+    path = script("zsh", monkeypatch, tmp_path)
+
+    result = subprocess.run(
+        [ZSH, "-f", "-c", 'source "$1"', "zsh", str(path)],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    assert result.stderr == (
+        "notes: completion needs zsh's completion system. Load it first, "
+        "for example in ~/.zshrc: autoload -Uz compinit && compinit\n"
+    )
+
+
 def test_completion_isnt_in_help_or_suggestions() -> None:
     assert "--completion" not in run(notes, ["--help"]).stdout
     assert "--completion" not in run(notes, ["--complet"]).stderr
@@ -345,9 +366,7 @@ def test_the_script_registers_the_name_the_program_was_run_as(
         run(notes, ["--completion", "fish"]).stdout
     )
     monkeypatch.setattr(sys, "argv", [""])
-    assert run(notes, ["--completion", "zsh"]).stdout.endswith(
-        "compdef _cliron_notes notes\n"
-    )
+    assert "compdef _cliron_notes notes\n" in run(notes, ["--completion", "zsh"]).stdout
 
 
 def test_your_own_completion_option_wins() -> None:

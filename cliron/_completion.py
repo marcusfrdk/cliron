@@ -297,7 +297,12 @@ __FUNCTION__() {
     esac
 }
 
-compdef __FUNCTION__ __PROGRAM__
+if (( $+functions[compdef] )); then
+    compdef __FUNCTION__ __PROGRAM__
+else
+    print -ru2 -- __PROGRAM__: "completion needs zsh's completion system." \
+        "Load it first, for example in ~/.zshrc: autoload -Uz compinit && compinit"
+fi
 """
 
 FISH = r"""set -g __FUNCTION___records (string split \n -- '__DATA__')

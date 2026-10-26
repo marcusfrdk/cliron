@@ -32,8 +32,11 @@ echo 'eval "$(mycli --completion bash)"' >> ~/.bashrc
 ### Zsh
 
 ```bash
+echo 'autoload -Uz compinit && compinit' >> ~/.zshrc
 echo 'eval "$(mycli --completion zsh)"' >> ~/.zshrc
 ```
+
+Leave out the first line if your `~/.zshrc` already runs `compinit`.
 
 ### Fish
 
