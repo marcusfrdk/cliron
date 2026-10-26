@@ -8,11 +8,12 @@ from types import FunctionType
 from typing import ClassVar, Protocol
 
 from cliron._builtin_options import DEFAULT_BUILTINS, Builtins
-from cliron._children import AnyChild, run_child
+from cliron._children import AnyChild, checks_on_run, run_child
 from cliron._conversion import NUMBER, Converter, describe, fits_value
 from cliron._dependencies import Dependency, Given
 from cliron._hooks import HookCall, first_handler
 from cliron._names import closest, long_flag, token
+from cliron._nodes import settled
 from cliron._parents import Argument, Env, Parent, Stdin, call, flags
 
 _FINAL_LINE_BREAK = re.compile(r"\r?\n\Z")
@@ -121,10 +122,6 @@ def node_path(nodes: Iterable[Node]) -> str:
     return " ".join(token(node.name) for node in nodes)
 
 
-def parse(root: Node, args: Sequence[str]) -> Parsed:
-    return _Reader(args).read(root)
-
-
 class _Segment:
     def __init__(self, node: Node, inherited: Builtins, start: int) -> None:
         self.node: Node = node
@@ -173,62 +170,63 @@ class _Segment:
             error = ValueError(f"unexpected argument {word!r}.")
             self.word_errors.append((position, error))
 
-    def resolve(self, target: Input, path: str) -> tuple[object, list[Exception]]:
+    async def resolve(self, target: Input, path: str) -> tuple[object, list[Exception]]:
         try:
-            value, problems = self._read(target, path)
+            value, problems = await self._read(target, path)
         except Exception as error:
             handler = _input_handler(target, error)
             if handler is None:
                 raise
-            return _parent_value(target, *handler, error, self.node), []
+            return await _parent_value(target, *handler, error, self.node), []
         if problems:
             handler = _input_handler(target, problems[0])
             if handler is not None:
                 try:
-                    return _parent_value(target, *handler, problems[0], self.node), []
+                    found = await _parent_value(
+                        target, *handler, problems[0], self.node
+                    )
                 except (LookupError, ValueError) as raised:
                     return None, [raised, *problems[1:]]
+                return found, []
         return value, problems
 
-    def _read(self, target: Input, path: str) -> tuple[object, list[Exception]]:
+    async def _read(self, target: Input, path: str) -> tuple[object, list[Exception]]:
         converter = target.converter
         if converter is None:
-            return self._resolve_flag(target)
-        unreadable = self._load(target)
+            return await self._resolve_flag(target)
+        unreadable = await self._load(target)
         if unreadable is not None:
             return None, [unreadable]
         raw = self.raw.get(target.name)
         if raw is None:
             if target.required and target.name not in self.input_errors:
                 return None, [LookupError(_missing(target, path))]
-            return target.default, self._check_default(target)
+            return target.default, await self._check_default(target)
         values: list[object] = []
         problems: list[Exception] = []
         for line, word in enumerate(raw, start=1):
             try:
-                values.append(_value(target, converter, word, self.node))
+                values.append(await _value(target, converter, word, self.node))
             except ValueError as error:
                 problems.append(ValueError(f"{_label(target, line)}: {error}"))
         if converter.collect is not None:
             return converter.collect(values), problems
         return (values[0] if values else None), problems
 
-    def _resolve_flag(self, target: Input) -> tuple[object, list[Exception]]:
+    async def _resolve_flag(self, target: Input) -> tuple[object, list[Exception]]:
         count = self.occurrences.get(target.name, 0)
         value: object = count if target.counted else count > 0
         if not count:
-            return value, self._check_default(target)
+            return value, await self._check_default(target)
         try:
-            value = _processed(target, value, self.node)
+            value = await _processed(target, value, self.node)
         except ValueError as error:
             return value, [ValueError(f"{target.display}: {error}")]
         return value, []
 
-    def _check_default(self, target: Input) -> list[Exception]:
+    async def _check_default(self, target: Input) -> list[Exception]:
         runs = [
-            index
-            for index, found in enumerate(target.children)
-            if found.default_check == "run"
+            index for index, found in enumerate(target.children) if checks_on_run(found)
         ]
         if not runs or target.default is None:
             return []
@@ -240,14 +238,14 @@ class _Segment:
         problems: list[Exception] = []
         for item in target.default_items:
             try:
-                _ = _processed(checking, item, self.node)
+                _ = await _processed(checking, item, self.node)
             except ValueError as error:
                 problems.append(ValueError(f"{target.display}: {error}"))
         return problems
 
-    def _load(self, target: Input) -> Exception | None:
+    async def _load(self, target: Input) -> Exception | None:
         try:
-            text = typing.cast("object", target.parent.load())
+            text = await settled(target.parent.load())
         except UnicodeDecodeError as error:
             message = f"{target.display}: the input isn't valid {error.encoding} text."
             return ValueError(message)
@@ -265,7 +263,7 @@ class _Segment:
         return None
 
 
-class _Reader:
+class Reader:
     def __init__(self, args: Sequence[str]) -> None:
         self.args: list[str] = list(args)
         self.position: int = 0
@@ -274,7 +272,7 @@ class _Reader:
         self.request: tuple[str, int] | None = None
         self.bare: tuple[int, Exception] | None = None
 
-    def read(self, root: Node) -> Parsed:
+    def read(self, root: Node) -> Request | None:
         node: Node | None = root
         inherited = DEFAULT_BUILTINS
         while node is not None:
@@ -284,17 +282,24 @@ class _Reader:
             node = self._read_command(segment)
             inherited = segment.builtins
         if self.request is not None:
-            return self._answer(*self.request)
+            return self._request(*self.request)
         self._report_unknown()
-        parsed = self._resolve()
+        return None
+
+    @property
+    def nodes(self) -> list[Node]:
+        return [segment.node for segment in self.segments]
+
+    async def resolve(self) -> Parsed:
+        parsed = await self._resolve()
         if self.bare is not None and parsed.errors == [self.bare[1]]:
-            return self._answer("usage", self.bare[0])
+            request = self._request("usage", self.bare[0])
+            return Parsed([], [], request.builtins, request)
         return parsed
 
-    def _answer(self, kind: str, index: int) -> Parsed:
+    def _request(self, kind: str, index: int) -> Request:
         nodes = [segment.node for segment in self.segments[: index + 1]]
-        builtins = self.segments[index].builtins
-        return Parsed([], [], builtins, Request(kind, nodes, builtins))
+        return Request(kind, nodes, self.segments[index].builtins)
 
     def _read_segment(self, segment: _Segment) -> None:
         while self.position < len(self.args):
@@ -461,7 +466,7 @@ class _Reader:
                 error = ValueError(_unknown_option(flag, owners, segment.definition))
                 segment.word_errors.append((position, error))
 
-    def _resolve(self) -> Parsed:
+    async def _resolve(self) -> Parsed:
         path: list[tuple[Node, dict[str, object]]] = []
         errors: list[Exception] = []
         for index, segment in enumerate(self.segments):
@@ -469,7 +474,9 @@ class _Reader:
             command_path = node_path(part.node for part in self.segments[: index + 1])
             values: dict[str, object] = {}
             for target in segment.definition.inputs:
-                values[target.name], problems = segment.resolve(target, command_path)
+                values[target.name], problems = await segment.resolve(
+                    target, command_path
+                )
                 errors.extend(segment.input_errors.get(target.name, []))
                 errors.extend(problems)
             given = segment.given()
@@ -490,16 +497,16 @@ def _is_option(word: str) -> bool:
     return word.startswith("-") and word != "-" and not NUMBER.fullmatch(word)
 
 
-def _value(target: Input, converter: Converter, word: str, node: Node) -> object:
-    return _processed(target, converter.convert(word), node)
+async def _value(target: Input, converter: Converter, word: str, node: Node) -> object:
+    return await _processed(target, converter.convert(word), node)
 
 
-def _processed(target: Input, value: object, node: Node) -> object:
+async def _processed(target: Input, value: object, node: Node) -> object:
     source = ""
     for found, handlers in zip(target.children, target.child_handlers, strict=True):
         source = f"@{found!r}"
         try:
-            value = run_child(found, value)
+            value = await settled(run_child(found, value))
         except Exception as error:
             handler = (
                 None
@@ -508,7 +515,7 @@ def _processed(target: Input, value: object, node: Node) -> object:
             )
             if handler is None:
                 raise
-            value = _call_handler(*handler, error)
+            value = await _call_handler(*handler, error)
             source = f"hook function '{handler[0].hook.callback.__name__}'"
     if target.children and not fits_value(value, target.accepts):
         what = "None" if value is None else type(value).__name__
@@ -529,14 +536,16 @@ def _input_handler(target: Input, error: Exception) -> tuple[HookCall, str] | No
     return first_handler(target.handlers, error)
 
 
-def _call_handler(handler: HookCall, parameter: str, error: Exception) -> object:
-    return typing.cast("object", handler.hook.callback(**{parameter: error}))
+async def _call_handler(handler: HookCall, parameter: str, error: Exception) -> object:
+    return await settled(
+        typing.cast("object", handler.hook.callback(**{parameter: error}))
+    )
 
 
-def _parent_value(
+async def _parent_value(
     target: Input, handler: HookCall, parameter: str, error: Exception, node: Node
 ) -> object:
-    value = _call_handler(handler, parameter, error)
+    value = await _call_handler(handler, parameter, error)
     if fits_value(value, target.annotation):
         return value
     expected = describe(target.annotation)

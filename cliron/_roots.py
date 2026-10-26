@@ -1,7 +1,7 @@
 import inspect
 import sys
 import typing
-from collections.abc import Callable, Generator, Sequence
+from collections.abc import AsyncGenerator, Callable, Coroutine, Generator, Sequence
 from dataclasses import replace
 from types import FunctionType, MappingProxyType, NoneType
 from typing import ClassVar, NoReturn
@@ -17,6 +17,8 @@ from cliron._children import (
     AnyChild,
     Choices,
     check_below,
+    checks_on_run,
+    child_function,
     converts,
     misfit,
     run_child,
@@ -41,6 +43,7 @@ from cliron._names import (
     parameter_suggestion,
     token,
 )
+from cliron._nodes import is_async, settled
 from cliron._parents import (
     Argument,
     CommandLineParent,
@@ -51,6 +54,7 @@ from cliron._parents import (
     call,
     children_of,
     flags,
+    load_function,
     parents_of,
 )
 from cliron._parsing import (
@@ -58,11 +62,11 @@ from cliron._parsing import (
     Input,
     MistakeError,
     Node,
+    Reader,
     Request,
     location,
-    parse,
 )
-from cliron._signals import finish
+from cliron._signals import finish, run_in_loop
 
 _UNSUPPORTED_KINDS = {
     inspect.Parameter.POSITIONAL_ONLY: (
@@ -390,10 +394,17 @@ def _main_or_mistake(root: Root, args: list[str]) -> int:
 
 
 def main(root: Node, args: list[str]) -> int:
-    parsed = parse(root, args)
-    request = parsed.request
+    reader = Reader(args)
+    request = reader.read(root)
     if request is not None:
         return _answer(request)
+    return _drive(_complete(reader), needs_loop=_needs_loop(reader.nodes))
+
+
+async def _complete(reader: Reader) -> int:
+    parsed = await reader.resolve()
+    if parsed.request is not None:
+        return _answer(parsed.request)
     if parsed.errors:
         for error in parsed.errors:
             _ = sys.stderr.write(f"error: {error}\n")
@@ -406,36 +417,74 @@ def main(root: Node, args: list[str]) -> int:
         tuple(token(node.name) for node, _ in parsed.path),
         tuple(MappingProxyType(dict(values)) for _, values in parsed.path),
     )
-    output = _run_span(parsed.path, {Context: context})
+    output = await _run_span(parsed.path, {Context: context})
     _render(parsed.path[-1][0], output)
     return 0
 
 
-Teardown = Generator[object, None, object]
+def _needs_loop(nodes: list[Node]) -> bool:
+    return any(is_async(function) for node in nodes for function in _functions(node))
+
+
+def _functions(node: Node) -> list[object]:
+    definition = node.definition()
+    found: list[object] = [node.function]
+    found.extend(each.hook.callback for each in definition.hooks)
+    for target in definition.inputs:
+        found.append(load_function(target.parent))
+        found.extend(child_function(each) for each in target.children)
+        found.extend(each.hook.callback for each in target.handlers)
+        found.extend(
+            each.hook.callback
+            for handlers in target.child_handlers
+            for each in handlers
+        )
+    return found
+
+
+def _drive(coroutine: Coroutine[object, None, int], *, needs_loop: bool) -> int:
+    if needs_loop:
+        return run_in_loop(coroutine)
+    try:
+        _ = coroutine.send(None)
+    except StopIteration as done:
+        return typing.cast("int", done.value)
+    coroutine.close()
+    message = (
+        "something on this command line returned a value to await that waits "
+        "for an event loop, but no function, hook, child or parent on it is "
+        "async def. Make the one that waits async def."
+    )
+    raise RuntimeError(message)
+
+
+Teardown = Generator[object, None, object] | AsyncGenerator[object, None]
 Shared = dict[type[object], object]
 
 
-def _run_span(path: list[tuple[Node, dict[str, object]]], shared: Shared) -> object:
+async def _run_span(
+    path: list[tuple[Node, dict[str, object]]], shared: Shared
+) -> object:
     (node, values), *inside = path
     entered = False
     try:
         try:
-            _run_hooks(node, "start", shared)
+            await _run_hooks(node, "start", shared)
             entered = True
             arguments = {**values, **_arguments(node.definition().injected, shared)}
             if inside:
-                output = _run_around(node, arguments, inside, shared)
+                output = await _run_around(node, arguments, inside, shared)
             else:
-                output = node.function(**arguments)
+                output = await settled(node.function(**arguments))
         except Exception as error:
             handler = _handler_for(node, error)
             if handler is None:
                 raise
-            output = _handle(node, *handler, error, shared)
-        _run_hooks(node, "success", shared)
+            output = await _handle(node, *handler, error, shared)
+        await _run_hooks(node, "success", shared)
     finally:
         if entered:
-            _run_hooks(node, "exit", shared)
+            await _run_hooks(node, "exit", shared)
     return output
 
 
@@ -445,12 +494,12 @@ def _handler_for(node: Node, error: Exception) -> tuple[HookCall, str] | None:
     return first_handler(node.definition().hooks, error)
 
 
-def _handle(
+async def _handle(
     node: Node, handler: HookCall, parameter: str, error: Exception, shared: Shared
 ) -> object:
     callback = handler.hook.callback
     arguments = {**_arguments(handler.injected, shared), parameter: error}
-    result = typing.cast("object", callback(**arguments))
+    result = await settled(typing.cast("object", callback(**arguments)))
     returns = node.definition().returns
     if node.kind == "group" and result is not None:
         problem = f"group '{token(node.name)}' has no result to replace. Return None."
@@ -466,33 +515,35 @@ def _handle(
         f"hook function '{callback.__name__}' returned {describe(type(result))}, "
         f"but {problem}"
     )
-    raise _mistake(node, message) from None
+    raise _mistake(node, message)
 
 
-def _run_around(
+async def _run_around(
     node: Node,
     arguments: dict[str, object],
     inside: list[tuple[Node, dict[str, object]]],
     shared: Shared,
 ) -> object:
-    teardown = _run_group(node, arguments)
+    teardown = await _run_group(node, arguments)
     try:
-        output = _run_span(inside, shared)
+        output = await _run_span(inside, shared)
     except BaseException as error:
         if teardown is not None:
-            _finish(node, teardown, error)
+            await _finish(node, teardown, error)
         raise
     if teardown is not None:
-        _finish(node, teardown, None)
+        await _finish(node, teardown, None)
     return output
 
 
-def _run_hooks(node: Node, event: EventName, shared: Shared) -> None:
+async def _run_hooks(node: Node, event: EventName, shared: Shared) -> None:
     for found in node.definition().hooks:
         if found.hook.event.name != event:
             continue
         callback = found.hook.callback
-        result = typing.cast("object", callback(**_arguments(found.injected, shared)))
+        result = await settled(
+            typing.cast("object", callback(**_arguments(found.injected, shared)))
+        )
         if result is not None:
             message = (
                 f"hook function '{callback.__name__}' returned "
@@ -510,23 +561,23 @@ def _arguments(injected: dict[str, type[object]], shared: Shared) -> dict[str, o
     return arguments
 
 
-def _run_group(node: Node, arguments: dict[str, object]) -> Teardown | None:
+async def _run_group(node: Node, arguments: dict[str, object]) -> Teardown | None:
     result = node.function(**arguments)
-    if result is None:
+    if not inspect.isgenerator(result) and not inspect.isasyncgen(result):
+        result = await settled(result)
+        if result is not None:
+            raise _returned_a_value(node, result)
         return None
-    if not inspect.isgenerator(result):
-        raise _returned_a_value(node, result)
     teardown = typing.cast("Teardown", result)
-    try:
-        yielded = next(teardown)
-    except StopIteration:
+    finished, yielded = await _step(teardown, None)
+    if finished:
         message = (
             f"group '{token(node.name)}' returned before its yield, so nothing "
             "inside it could run. Yield once, between setup and teardown."
         )
-        raise _mistake(node, message) from None
+        raise _mistake(node, message)
     if yielded is not None:
-        _ = teardown.close()
+        await _close(teardown)
         message = (
             f"group '{token(node.name)}' yielded {type(yielded).__name__}, but a "
             "group yields nothing. Use a bare yield, and share data with @state."
@@ -535,20 +586,36 @@ def _run_group(node: Node, arguments: dict[str, object]) -> Teardown | None:
     return teardown
 
 
-def _finish(node: Node, teardown: Teardown, error: BaseException | None) -> None:
+async def _finish(node: Node, teardown: Teardown, error: BaseException | None) -> None:
+    finished, result = await _step(teardown, error)
+    if not finished:
+        await _close(teardown)
+        message = (
+            f"group '{token(node.name)}' yielded twice. "
+            "Yield once, between setup and teardown."
+        )
+        raise _mistake(node, message)
+    if error is None and result is not None:
+        raise _returned_a_value(node, result)
+
+
+async def _step(teardown: Teardown, error: BaseException | None) -> tuple[bool, object]:
     try:
-        _ = next(teardown) if error is None else teardown.throw(error)
+        if isinstance(teardown, AsyncGenerator):
+            sent = teardown.asend(None) if error is None else teardown.athrow(error)
+            return False, await sent
+        return False, teardown.send(None) if error is None else teardown.throw(error)
     except StopIteration as stopped:
-        result = typing.cast("object", stopped.value)
-        if error is None and result is not None:
-            raise _returned_a_value(node, result) from None
-        return
-    _ = teardown.close()
-    message = (
-        f"group '{token(node.name)}' yielded twice. "
-        "Yield once, between setup and teardown."
-    )
-    raise _mistake(node, message)
+        return True, typing.cast("object", stopped.value)
+    except StopAsyncIteration:
+        return True, None
+
+
+async def _close(teardown: Teardown) -> None:
+    if isinstance(teardown, AsyncGenerator):
+        await teardown.aclose()
+    else:
+        _ = teardown.close()
 
 
 def _returned_a_value(node: Node, result: object) -> MistakeError:
@@ -628,13 +695,10 @@ def _define(root: Root) -> Definition:
 
 def _definition(root: Root) -> Definition:
     function = root.function
-    if inspect.iscoroutinefunction(function) or inspect.isasyncgenfunction(function):
-        message = (
-            f"{function.__name__!r} is async, "
-            "and cliron doesn't run async functions yet."
-        )
-        raise TypeError(message)
-    if inspect.isgeneratorfunction(function) and root.kind == "command":
+    generator = inspect.isgeneratorfunction(function) or inspect.isasyncgenfunction(
+        function
+    )
+    if generator and root.kind == "command":
         message = (
             f"{function.__name__!r} is a generator, but only a group's function "
             "can yield, to run teardown after its commands. "
@@ -682,13 +746,7 @@ def _with_handlers(root: Root, target: Input) -> Input:
 def _hook_call(found: Hook, *, on_input: bool = False) -> HookCall:
     callback = found.callback
     name = callback.__name__
-    if inspect.iscoroutinefunction(callback) or inspect.isasyncgenfunction(callback):
-        message = (
-            f"hook function {name!r} is async, "
-            "and cliron doesn't run async functions yet."
-        )
-        raise TypeError(message)
-    if inspect.isgeneratorfunction(callback):
+    if inspect.isgeneratorfunction(callback) or inspect.isasyncgenfunction(callback):
         message = (
             f"hook function {name!r} is a generator. Run code before and after "
             "with on.start() and on.exit() hooks, or yield in a group's function."
@@ -946,7 +1004,7 @@ def _check_default(target: Input, children: tuple[AnyChild, ...]) -> None:
     if target.required or target.default is None:
         return
     where = "an item of the default" if target.multiple else "the default"
-    checks = [found for found in children if found.default_check == "definition"]
+    checks = [found for found in children if not checks_on_run(found)]
     for item in target.default_items:
         value = item
         for found in checks:

@@ -4,7 +4,8 @@ import select
 import signal
 import sys
 import threading
-from collections.abc import Callable, Generator
+import typing
+from collections.abc import Callable, Coroutine, Generator
 from types import FrameType, TracebackType
 from typing import NoReturn
 
@@ -48,6 +49,56 @@ def _terminate_on_signals() -> Generator[None]:
     finally:
         for number in numbers:
             _ = signal.signal(number, signal.SIG_DFL)
+
+
+def run_in_loop(coroutine: Coroutine[object, None, int]) -> int:
+    import asyncio
+
+    try:
+        _ = asyncio.get_running_loop()
+    except RuntimeError:
+        pass
+    else:
+        coroutine.close()
+        message = (
+            "cliron runs async functions in an event loop of its own, but one is "
+            "already running in this thread. Call the CLI from synchronous code, "
+            "such as a test that isn't async."
+        )
+        raise RuntimeError(message)
+    with asyncio.Runner() as runner:
+        return runner.run(_cancelled_on_terminate(coroutine))
+
+
+async def _cancelled_on_terminate(coroutine: Coroutine[object, None, int]) -> int:
+    import asyncio
+
+    loop = asyncio.get_running_loop()
+    task = typing.cast("asyncio.Task[int]", asyncio.current_task())
+    terminated: list[int] = []
+
+    def cancel(number: int, frame: FrameType | None) -> None:
+        _ = frame
+        terminated.append(number)
+        _ = loop.call_soon_threadsafe(task.cancel)
+
+    ours = threading.current_thread() is threading.main_thread()
+    numbers = [
+        number
+        for number in _termination_signals()
+        if ours and signal.getsignal(number) is _terminate
+    ]
+    for number in numbers:
+        _ = signal.signal(number, cancel)
+    try:
+        return await coroutine
+    except asyncio.CancelledError:
+        if terminated:
+            raise SystemExit(TERMINATED) from None
+        raise
+    finally:
+        for number in numbers:
+            _ = signal.signal(number, _terminate)
 
 
 def _termination_signals() -> list[int]:

@@ -453,22 +453,15 @@ def test_positional_only_parameter_is_rejected(check: Check) -> None:
 
 
 @ENTRY_POINTS
-def test_async_function_is_rejected(check: Check) -> None:
-    @command("greet")
-    async def greet() -> None: ...
-
-    message = "'greet' is async, and cliron doesn't run async functions yet."
-    with pytest.raises(TypeError, match=exactly(message)):
-        _ = check(greet)
-
-
-@ENTRY_POINTS
-def test_async_generator_function_is_rejected(check: Check) -> None:
+def test_a_command_cant_be_an_async_generator(check: Check) -> None:
     @command("greet")
     async def greet() -> AsyncIterator[str]:
         yield "Hello!"
 
-    message = "'greet' is async, and cliron doesn't run async functions yet."
+    message = (
+        "'greet' is a generator, but only a group's function can yield, to run "
+        "teardown after its commands. Return the command's result instead."
+    )
     with pytest.raises(TypeError, match=exactly(message)):
         _ = check(greet)
 

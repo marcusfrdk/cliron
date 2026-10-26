@@ -1,3 +1,5 @@
+import inspect
+import typing
 from collections.abc import Callable
 from types import FunctionType
 from typing import TypeVar, cast
@@ -19,3 +21,13 @@ def store(record: object, function: object, decorator: str) -> None:
 
 def nodes_of(function: FunctionType) -> tuple[object, ...]:
     return cast("tuple[object, ...]", vars(function).get(_NODES, ()))
+
+
+def is_async(function: object) -> bool:
+    return inspect.iscoroutinefunction(function) or inspect.isasyncgenfunction(function)
+
+
+async def settled(result: object) -> object:
+    if inspect.isawaitable(result):
+        return typing.cast("object", await result)
+    return result

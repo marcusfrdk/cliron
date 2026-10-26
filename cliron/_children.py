@@ -2,7 +2,7 @@ import inspect
 import re
 import typing
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Collection
+from collections.abc import Awaitable, Callable, Collection
 from dataclasses import dataclass
 from datetime import date, datetime, time
 from enum import Enum
@@ -22,7 +22,7 @@ from typing import (
 )
 
 from cliron._conversion import describe, shown, value_type
-from cliron._nodes import F, store
+from cliron._nodes import F, is_async, store
 
 In_contra = TypeVar("In_contra", contravariant=True)
 Out_co = TypeVar("Out_co", covariant=True)
@@ -60,9 +60,13 @@ class Child(ABC, Generic[In_contra, Out_co]):
     default_check: ClassVar[Literal["definition", "run"]] = "definition"
 
     @abstractmethod
-    def process(self, value: In_contra, /) -> Out_co:
+    def process(self, value: In_contra, /) -> Out_co | Awaitable[Out_co]:
         """
         Check or change a value.
+
+        It may be ``async def``. The default of a child whose ``process`` is
+        async is checked on each run that uses it, as with
+        ``default_check = "run"``.
 
         :param value: The parent's value, or the text from the command line
             for a first child that takes ``str``.
@@ -433,6 +437,16 @@ def check_below(function: object, decorator: str) -> None:
 
 def run_child(found: AnyChild, value: object) -> object:
     return typing.cast("Child[object, object]", found).process(value)
+
+
+def checks_on_run(found: AnyChild) -> bool:
+    return found.default_check == "run" or is_async(child_function(found))
+
+
+def child_function(found: AnyChild) -> object:
+    if isinstance(found, FunctionChild):
+        return typing.cast("FunctionChild[object, object]", found).function
+    return type(found).process
 
 
 def input_type(found: AnyChild) -> object:

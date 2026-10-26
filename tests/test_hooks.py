@@ -1,6 +1,6 @@
 import re
 import sys
-from collections.abc import Callable, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator
 from typing import TypeVar
 
 import pytest
@@ -270,7 +270,8 @@ def takes_twice(first: Log, second: Log) -> None:
     _ = (first, second)
 
 
-async def waits() -> None: ...
+async def repeats_later() -> AsyncIterator[None]:
+    yield
 
 
 def repeats() -> Iterator[None]:
@@ -305,10 +306,11 @@ def positional(log: Log, /) -> None:
             "parameters 'first' and 'second' both take Log. Keep one.",
         ),
         (
-            waits,
+            repeats_later,
             (
-                "hook function 'waits' is async, and cliron doesn't run async "
-                "functions yet."
+                "hook function 'repeats_later' is a generator. Run code before and "
+                "after with on.start() and on.exit() hooks, or yield in a group's "
+                "function."
             ),
         ),
         (
@@ -319,7 +321,7 @@ def positional(log: Log, /) -> None:
             ),
         ),
     ],
-    ids=["value", "positional", "twice", "async", "generator"],
+    ids=["value", "positional", "twice", "async-generator", "generator"],
 )
 def test_a_hook_function_that_cant_be_called_is_rejected(
     callback: Callable[..., object], message: str

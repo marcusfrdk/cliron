@@ -35,6 +35,8 @@
 - `Context.values` holds the values of every command and group on the path, in the same order as `Context.path`.
 - `on.error()` hooks handle the exceptions that leave a command or group, chosen by the annotation of the handler's exception parameter, and a command's handler's return value becomes its result.
 - An `on.error()` hook right below a parent or child handles a failure to read that input, such as a missing environment variable, and its return value is used instead.
+- Command and group functions, hooks, error handlers, children and parents can be `async def`, and a group's async generator runs its teardown like a sync one.
+- An event loop runs only when something on the command line being run is async, so a sync CLI never imports asyncio, and Ctrl+C and SIGTERM cancel an async run so that its cleanup runs.
 
 ### Changed
 

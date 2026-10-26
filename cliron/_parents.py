@@ -3,7 +3,7 @@ import os
 import stat
 import sys
 from abc import ABC, abstractmethod
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from types import FunctionType
 from typing import ClassVar, Protocol, TextIO, final
@@ -17,6 +17,8 @@ from cliron._names import (
     placeholder,
 )
 from cliron._nodes import F, nodes_of, store
+
+Loader = Callable[[str], str | Awaitable[str | None] | None]
 
 
 class Parent(ABC):
@@ -47,9 +49,9 @@ class Parent(ABC):
         self.help = _check_help(help, written)
 
     @abstractmethod
-    def load(self) -> str | None:
+    def load(self) -> str | Awaitable[str | None] | None:
         """
-        Load the parameter's text.
+        Load the parameter's text. It may be ``async def``.
 
         :returns: The text, which cliron converts with the parameter's
             annotation, or ``None`` if there is none.
@@ -161,13 +163,11 @@ class Stdin(Parent):
 
 
 class FunctionParent(Parent):
-    def __init__(
-        self, function: Callable[[str], str | None], name: str, help: str | None
-    ) -> None:
-        self.function: Callable[[str], str | None] = function
+    def __init__(self, function: Loader, name: str, help: str | None) -> None:
+        self.function: Loader = function
         super().__init__(name, help=help)
 
-    def load(self) -> str | None:
+    def load(self) -> str | Awaitable[str | None] | None:
         return self.function(self.name)
 
 
@@ -184,6 +184,12 @@ def decorator_of(parent: Parent) -> str:
     if isinstance(parent, FunctionParent):
         return parent.function.__name__
     return type(parent).__name__
+
+
+def load_function(parent: Parent) -> object:
+    if isinstance(parent, FunctionParent):
+        return parent.function
+    return type(parent).load
 
 
 def flags(parent: Parent) -> tuple[str, ...]:
@@ -220,7 +226,7 @@ def children_of(function: FunctionType) -> dict[str, tuple[AnyChild, ...]]:
     return {name: tuple(children) for name, children in attached.items()}
 
 
-def parent(function: Callable[[str], str | None]) -> ParentFactory:
+def parent(function: Loader) -> ParentFactory:
     """
     Turn a function into a parent that loads a parameter's text.
 
