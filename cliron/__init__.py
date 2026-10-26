@@ -6,7 +6,6 @@ if TYPE_CHECKING:
     from cliron._children import Child, between, child, choices, length, matches
     from cliron._context import Context, state
     from cliron._dependencies import dependency
-    from cliron._help import Help, HelpRow, HelpSection
     from cliron._hooks import hook, on
     from cliron._parents import Parent, argument, env, flag, option, parent, stdin
     from cliron._paths import directory, file
@@ -15,9 +14,6 @@ if TYPE_CHECKING:
 __all__ = [
     "Child",
     "Context",
-    "Help",
-    "HelpRow",
-    "HelpSection",
     "Parent",
     "__version__",
     "argument",
@@ -46,9 +42,6 @@ __version__: str
 _MODULES = {
     "Child": "cliron._children",
     "Context": "cliron._context",
-    "Help": "cliron._help",
-    "HelpRow": "cliron._help",
-    "HelpSection": "cliron._help",
     "Parent": "cliron._parents",
     "argument": "cliron._parents",
     "between": "cliron._children",

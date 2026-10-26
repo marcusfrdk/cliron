@@ -38,21 +38,6 @@ SectionKind = Literal[
 
 @dataclass(frozen=True)
 class HelpRow:
-    """
-    One row of a help section: an input, a command, or a sentence.
-
-    :ivar names: What users type or set, such as ``("-k", "--keep")``,
-        ``("SOURCE",)``, ``("NOTES_DB",)`` or ``("add",)``. Empty for a
-        sentence, such as a dependency.
-    :ivar value: The placeholder for the value, such as ``"INT"`` or
-        ``"[zip|tar]"``, or ``None`` when there is none to show.
-    :ivar text: The help text, a command's summary, or the sentence.
-    :ivar notes: Sentences that follow the text, such as ``"1 to 100."`` from
-        a child or ``"Repeatable."``.
-    :ivar default: The default as help shows it, or ``None`` for none.
-    :ivar required: Whether the input must be given.
-    """
-
     names: tuple[str, ...]
     value: str | None = None
     text: str = ""
@@ -63,15 +48,6 @@ class HelpRow:
 
 @dataclass(frozen=True)
 class HelpSection:
-    """
-    A titled part of the help, such as the options or the commands.
-
-    :ivar kind: What the rows are: ``"arguments"``, ``"options"``,
-        ``"environment"``, ``"input"``, ``"dependencies"`` or ``"commands"``.
-    :ivar title: The title, such as ``"Options"`` or ``"Options for notes"``.
-    :ivar rows: The rows, in the order help shows them.
-    """
-
     kind: SectionKind
     title: str
     rows: tuple[HelpRow, ...]
@@ -79,16 +55,6 @@ class HelpSection:
 
 @dataclass(frozen=True)
 class Help:
-    """
-    What the help of a command or group shows.
-
-    :ivar usage: The words of the usage line after ``Usage:``, such as
-        ``("notes", "[OPTIONS]", "add", "[OPTIONS]", "TEXT")``.
-    :ivar summary: The first paragraph of the function's docstring.
-    :ivar sections: The sections that have rows, in the order help shows
-        them.
-    """
-
     usage: tuple[str, ...]
     summary: str
     sections: tuple[HelpSection, ...]
