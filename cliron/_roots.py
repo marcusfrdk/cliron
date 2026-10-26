@@ -3,6 +3,7 @@ import sys
 import typing
 from collections.abc import AsyncGenerator, Callable, Coroutine, Generator, Sequence
 from dataclasses import replace
+from pathlib import Path
 from types import FunctionType, MappingProxyType, NoneType
 from typing import ClassVar, NoReturn
 
@@ -23,6 +24,7 @@ from cliron._children import (
     misfit,
     run_child,
 )
+from cliron._completion import completion_script
 from cliron._context import Context, injected
 from cliron._conversion import (
     SUPPORTED,
@@ -633,6 +635,11 @@ def _mistake(node: Node, message: str) -> MistakeError:
 
 
 def _answer(request: Request) -> int:
+    if request.kind == "completion":
+        root = request.nodes[0]
+        program = Path(sys.argv[0]).name or token(root.name)
+        _ = sys.stdout.write(completion_script(root, request.value, program))
+        return 0
     if request.kind == "version" and request.builtins.version is not None:
         name = token(request.nodes[0].name)
         _ = sys.stdout.write(f"{name} {request.builtins.version.version}\n")

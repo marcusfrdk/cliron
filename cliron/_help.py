@@ -120,7 +120,7 @@ def help_for(nodes: Sequence[Node], builtins: Builtins) -> Help:
             "commands",
             "Commands",
             [
-                HelpRow((key,), text=_first_line(command))
+                HelpRow((key,), text=first_line(command))
                 for key, command in node.commands.items()
             ],
         ),
@@ -163,7 +163,7 @@ def _dependencies(title: str, node: Node) -> HelpSection:
     definition = node.definition()
     label = definition.labels.__getitem__
     rows = [
-        HelpRow((), text=_words(found.sentence(label)))
+        HelpRow((), text=plain(found.sentence(label)))
         for found in definition.dependencies
     ]
     return _section("dependencies", title, rows)
@@ -202,7 +202,7 @@ def _summary(node: Node) -> str:
     return _PARAGRAPH_BREAK.split(docstring)[0]
 
 
-def _first_line(node: Node) -> str:
+def first_line(node: Node) -> str:
     return _summary(node).split("\n")[0]
 
 
@@ -246,7 +246,7 @@ def _row(names: tuple[str, ...], value: str | None, target: Input) -> HelpRow:
     return HelpRow(
         names,
         value,
-        _words(target.parent.help or ""),
+        plain(target.parent.help or ""),
         tuple(notes),
         default,
         target.required,
@@ -308,7 +308,7 @@ def _fill(text: str, width: int, indent: int = 0, first_indent: int = 0) -> str:
     import textwrap
 
     return textwrap.fill(
-        _words(text),
+        plain(text),
         width,
         initial_indent=" " * first_indent,
         subsequent_indent=" " * indent,
@@ -317,5 +317,5 @@ def _fill(text: str, width: int, indent: int = 0, first_indent: int = 0) -> str:
     )
 
 
-def _words(text: str) -> str:
+def plain(text: str) -> str:
     return _BREAKABLE_SPACE.sub(" ", text).strip()

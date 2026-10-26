@@ -19,6 +19,28 @@ pip install cliron
 - **uv**: 0.11 or higher
 - **just**: 1.52 or higher
 
+## Shell Completions
+
+Every CLI built with cliron prints a completion script for bash, zsh or fish with `--completion`. Replace `mycli` with the name of your installed command.
+
+### Bash
+
+```bash
+echo 'eval "$(mycli --completion bash)"' >> ~/.bashrc
+```
+
+### Zsh
+
+```bash
+echo 'eval "$(mycli --completion zsh)"' >> ~/.zshrc
+```
+
+### Fish
+
+```bash
+echo 'mycli --completion fish | source' >> ~/.config/fish/config.fish
+```
+
 ## Development
 
 ```bash

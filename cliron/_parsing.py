@@ -20,6 +20,10 @@ _FINAL_LINE_BREAK = re.compile(r"\r?\n\Z")
 _LINE_BREAK = re.compile(r"\r?\n")
 
 
+COMPLETION = "--completion"
+SHELLS = ("bash", "zsh", "fish")
+
+
 class MistakeError(Exception):
     def __init__(self, error: Exception) -> None:
         super().__init__(str(error))
@@ -108,6 +112,7 @@ class Request:
     kind: str
     nodes: list[Node]
     builtins: Builtins
+    value: str = ""
 
 
 @dataclass(frozen=True)
@@ -270,6 +275,7 @@ class Reader:
         self.options_ended: bool = False
         self.segments: list[_Segment] = []
         self.request: tuple[str, int] | None = None
+        self.shell: str = ""
         self.bare: tuple[int, Exception] | None = None
 
     def read(self, root: Node) -> Request | None:
@@ -299,7 +305,7 @@ class Reader:
 
     def _request(self, kind: str, index: int) -> Request:
         nodes = [segment.node for segment in self.segments[: index + 1]]
-        return Request(kind, nodes, self.segments[index].builtins)
+        return Request(kind, nodes, self.segments[index].builtins, self.shell)
 
     def _read_segment(self, segment: _Segment) -> None:
         while self.position < len(self.args):
@@ -342,6 +348,9 @@ class Reader:
         flag, separator, value = word.partition("=")
         if flag in segment.builtin_flags:
             self._read_builtin(segment, flag, start, given_value=bool(separator))
+            return
+        if self._is_completion(segment, flag):
+            self._read_completion(segment, value if separator else None, start)
             return
         target = segment.definition.options.get(flag)
         if target is None:
@@ -390,6 +399,33 @@ class Reader:
             if rest.startswith("="):
                 segment.report(target, _takes_no_value(target))
                 return
+
+    def _is_completion(self, segment: _Segment, flag: str) -> bool:
+        return (
+            flag == COMPLETION
+            and segment is self.segments[0]
+            and flag not in segment.definition.options
+        )
+
+    def _read_completion(
+        self, segment: _Segment, value: str | None, start: int
+    ) -> None:
+        if value is None:
+            if self.position == len(self.args) or _is_option(self.args[self.position]):
+                message = f"{COMPLETION} needs a shell: {', '.join(SHELLS)}."
+                segment.word_errors.append((start, LookupError(message)))
+                return
+            value = self.args[self.position]
+            self.position += 1
+        if value not in SHELLS:
+            message = (
+                f"{COMPLETION}: {value!r} isn't one of {', '.join(SHELLS)}."
+                f"{_suggestion(value, SHELLS)}"
+            )
+            segment.word_errors.append((start, ValueError(message)))
+            return
+        self.request = ("completion", 0)
+        self.shell = value
 
     def _read_builtin(
         self, segment: _Segment, flag: str, start: int, *, given_value: bool

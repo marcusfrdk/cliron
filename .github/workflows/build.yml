@@ -40,6 +40,8 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - run: uv run --locked basedpyright
+      - name: Install zsh and fish for the completion tests
+        run: sudo apt-get update && sudo apt-get install --yes zsh fish
       - run: uv run --locked coverage run -m pytest
       - run: uv run --locked coverage report
 
