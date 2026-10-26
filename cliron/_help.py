@@ -2,7 +2,8 @@ import inspect
 import os
 import re
 from collections.abc import Sequence
-from typing import TextIO, cast
+from dataclasses import dataclass
+from typing import Literal, TextIO, cast
 
 from cliron._builtin_options import Builtins
 from cliron._conversion import shown
@@ -30,79 +31,176 @@ def usage_hint(nodes: Sequence[Node], builtins: Builtins) -> str | None:
     return f"Run '{node_path(nodes)} {flag}' for usage."
 
 
+SectionKind = Literal[
+    "arguments", "options", "environment", "input", "dependencies", "commands"
+]
+
+
+@dataclass(frozen=True)
+class HelpRow:
+    """
+    One row of a help section: an input, a command, or a sentence.
+
+    :ivar names: What users type or set, such as ``("-k", "--keep")``,
+        ``("SOURCE",)``, ``("NOTES_DB",)`` or ``("add",)``. Empty for a
+        sentence, such as a dependency.
+    :ivar value: The placeholder for the value, such as ``"INT"`` or
+        ``"[zip|tar]"``, or ``None`` when there is none to show.
+    :ivar text: The help text, a command's summary, or the sentence.
+    :ivar notes: Sentences that follow the text, such as ``"1 to 100."`` from
+        a child or ``"Repeatable."``.
+    :ivar default: The default as help shows it, or ``None`` for none.
+    :ivar required: Whether the input must be given.
+    """
+
+    names: tuple[str, ...]
+    value: str | None = None
+    text: str = ""
+    notes: tuple[str, ...] = ()
+    default: str | None = None
+    required: bool = False
+
+
+@dataclass(frozen=True)
+class HelpSection:
+    """
+    A titled part of the help, such as the options or the commands.
+
+    :ivar kind: What the rows are: ``"arguments"``, ``"options"``,
+        ``"environment"``, ``"input"``, ``"dependencies"`` or ``"commands"``.
+    :ivar title: The title, such as ``"Options"`` or ``"Options for notes"``.
+    :ivar rows: The rows, in the order help shows them.
+    """
+
+    kind: SectionKind
+    title: str
+    rows: tuple[HelpRow, ...]
+
+
+@dataclass(frozen=True)
+class Help:
+    """
+    What the help of a command or group shows.
+
+    :ivar usage: The words of the usage line after ``Usage:``, such as
+        ``("notes", "[OPTIONS]", "add", "[OPTIONS]", "TEXT")``.
+    :ivar summary: The first paragraph of the function's docstring.
+    :ivar sections: The sections that have rows, in the order help shows
+        them.
+    """
+
+    usage: tuple[str, ...]
+    summary: str
+    sections: tuple[HelpSection, ...]
+
+
 def render_help(nodes: Sequence[Node], builtins: Builtins, width: int) -> str:
+    return render(help_for(nodes, builtins), width)
+
+
+def help_for(nodes: Sequence[Node], builtins: Builtins) -> Help:
     node = nodes[-1]
     definition = node.definition()
-    sections = [_usage(nodes, width)]
-    summary = _summary(node)
-    if summary:
-        sections.append(_fill(summary, width))
-    arguments = [
-        _value_row(_placeholder(target), target, show_required=False)
-        for target in definition.arguments
-    ]
     options = [_option_row(target) for target in _own_options(node)]
     if builtins.version is not None:
         options.append(
-            (", ".join(builtins.version.flags), "Show the version and exit.")
+            HelpRow(builtins.version.flags, text="Show the version and exit.")
         )
-    options.append((", ".join(builtins.help.flags), "Show this help and exit."))
-    commands = [(key, _first_line(command)) for key, command in node.commands.items()]
-    tables = [("Arguments", arguments), ("Options", options)]
-    for index, group in enumerate(nodes[:-1]):
-        rows = [_option_row(target) for target in _own_options(group)]
-        tables.append((f"Options for {node_path(nodes[: index + 1])}", rows))
-    environment = [
-        _value_row(target.parent.variable, target, show_required=True)
-        for each in nodes
-        for target in each.definition().inputs
-        if isinstance(target.parent, Env)
-    ]
-    loaded = [
-        _value_row(target.display, target, show_required=True)
-        for each in nodes
-        for target in each.definition().inputs
-        if not isinstance(target.parent, CommandLineParent | Env)
-    ]
-    tables.extend([("Environment", environment), ("Input", loaded)])
-    position = _help_position(
-        [*(row for _, rows in tables for row in rows), *commands], width
-    )
-    sections.extend(_tables(tables, position, width))
-    sections.extend(_dependency_sections(nodes, width))
-    sections.extend(_tables([("Commands", commands)], position, width))
-    return "\n\n".join(sections) + "\n"
-
-
-def _tables(
-    tables: list[tuple[str, list[tuple[str, str]]]], position: int, width: int
-) -> list[str]:
-    return [
-        "\n".join([f"{title}:", *_table(rows, position, width)])
-        for title, rows in tables
-        if rows
-    ]
-
-
-def _dependency_sections(nodes: Sequence[Node], width: int) -> list[str]:
-    titled = [
-        ("Dependencies", nodes[-1]),
+    options.append(HelpRow(builtins.help.flags, text="Show this help and exit."))
+    sections = [
+        _section(
+            "arguments",
+            "Arguments",
+            [
+                _value_row(_placeholder(target), target)
+                for target in definition.arguments
+            ],
+        ),
+        _section("options", "Options", options),
         *(
-            (f"Dependencies for {node_path(nodes[: index + 1])}", group)
+            _section(
+                "options",
+                f"Options for {node_path(nodes[: index + 1])}",
+                [_option_row(target) for target in _own_options(group)],
+            )
             for index, group in enumerate(nodes[:-1])
         ),
+        _section(
+            "environment",
+            "Environment",
+            [
+                _value_row(target.parent.variable, target)
+                for each in nodes
+                for target in each.definition().inputs
+                if isinstance(target.parent, Env)
+            ],
+        ),
+        _section(
+            "input",
+            "Input",
+            [
+                _value_row(target.display, target)
+                for each in nodes
+                for target in each.definition().inputs
+                if not isinstance(target.parent, CommandLineParent | Env)
+            ],
+        ),
+        _dependencies("Dependencies", node),
+        *(
+            _dependencies(f"Dependencies for {node_path(nodes[: index + 1])}", group)
+            for index, group in enumerate(nodes[:-1])
+        ),
+        _section(
+            "commands",
+            "Commands",
+            [
+                HelpRow((key,), text=_first_line(command))
+                for key, command in node.commands.items()
+            ],
+        ),
     ]
-    sections: list[str] = []
-    for title, node in titled:
-        definition = node.definition()
-        label = definition.labels.__getitem__
-        lines = [
-            _fill(found.sentence(label), width, indent=4, first_indent=2)
-            for found in definition.dependencies
-        ]
-        if lines:
-            sections.append("\n".join([f"{title}:", *lines]))
-    return sections
+    return Help(
+        _usage(nodes),
+        _summary(node),
+        tuple(section for section in sections if section.rows),
+    )
+
+
+def render(help: Help, width: int) -> str:
+    blocks = [_fill(" ".join(["Usage:", *help.usage]), width, indent=len("Usage: "))]
+    if help.summary:
+        blocks.append(_fill(help.summary, width))
+    terms = [
+        _term(row)
+        for section in help.sections
+        if section.kind != "dependencies"
+        for row in section.rows
+    ]
+    position = _help_position(terms, width)
+    for section in help.sections:
+        if section.kind == "dependencies":
+            lines = [
+                _fill(row.text, width, indent=4, first_indent=2) for row in section.rows
+            ]
+        else:
+            rows = [(_term(row), _description(row, section)) for row in section.rows]
+            lines = _table(rows, position, width)
+        blocks.append("\n".join([f"{section.title}:", *lines]))
+    return "\n\n".join(blocks) + "\n"
+
+
+def _section(kind: SectionKind, title: str, rows: list[HelpRow]) -> HelpSection:
+    return HelpSection(kind, title, tuple(rows))
+
+
+def _dependencies(title: str, node: Node) -> HelpSection:
+    definition = node.definition()
+    label = definition.labels.__getitem__
+    rows = [
+        HelpRow((), text=_words(found.sentence(label)))
+        for found in definition.dependencies
+    ]
+    return _section("dependencies", title, rows)
 
 
 def terminal_width(stream: TextIO) -> int:
@@ -117,20 +215,20 @@ def terminal_width(stream: TextIO) -> int:
     return max(min(width or _MAX_WIDTH, _MAX_WIDTH) - _MARGIN, 1)
 
 
-def _usage(nodes: Sequence[Node], width: int) -> str:
+def _usage(nodes: Sequence[Node]) -> tuple[str, ...]:
     node = nodes[-1]
-    parts = ["Usage:"]
+    words: list[str] = []
     for group in nodes[:-1]:
-        parts.append(node_path([group]))
+        words.append(node_path([group]))
         if _own_options(group):
-            parts.append("[OPTIONS]")
-    parts.extend((node_path([node]), "[OPTIONS]"))
+            words.append("[OPTIONS]")
+    words.extend((node_path([node]), "[OPTIONS]"))
     if node.kind == "group":
-        parts.append("COMMAND")
+        words.append("COMMAND")
     for target in node.definition().arguments:
         name = _placeholder(target)
-        parts.append(name if target.required else f"[{name}]")
-    return _fill(" ".join(parts), width, indent=len("Usage: "))
+        words.append(name if target.required else f"[{name}]")
+    return tuple(words)
 
 
 def _summary(node: Node) -> str:
@@ -154,37 +252,52 @@ def _placeholder(target: Input) -> str:
     return placeholder(target.name) + ("..." if target.multiple else "")
 
 
-def _value_row(name: str, target: Input, *, show_required: bool) -> tuple[str, str]:
-    if target.converter is not None and target.converter.choices:
-        name += f" {target.converter.metavar}"
-    return name, _describe(target, show_required=show_required)
+def _value_row(name: str, target: Input) -> HelpRow:
+    converter = target.converter
+    value = converter.metavar if converter is not None and converter.choices else None
+    return _row((name,), value, target)
 
 
-def _option_row(target: Input) -> tuple[str, str]:
+def _option_row(target: Input) -> HelpRow:
     parent = target.parent
     names = [long_flag(target.name)]
     if isinstance(parent, Option | Flag) and parent.short is not None:
         names.insert(0, parent.short)
-    invocation = ", ".join(names)
-    if target.converter is not None:
-        invocation += f" {target.converter.metavar}"
-    return invocation, _describe(target, show_required=True)
+    value = None if target.converter is None else target.converter.metavar
+    return _row(tuple(names), value, target)
 
 
-def _describe(target: Input, *, show_required: bool) -> str:
-    parts = [_words(target.parent.help or "")]
-    parts.extend(
-        sentence for child in target.children if (sentence := child.describe())
-    )
+def _row(names: tuple[str, ...], value: str | None, target: Input) -> HelpRow:
+    notes = [sentence for child in target.children if (sentence := child.describe())]
     if target.multiple or target.counted:
         piped = isinstance(target.parent, Stdin)
-        parts.append("One per line." if piped else "Repeatable.")
-    if target.required:
-        parts.append("(required)" if show_required else "")
-    elif target.converter is not None:
-        default = _format_default(target.default)
-        if default is not None:
-            parts.append(f"(default: {default})")
+        notes.append("One per line." if piped else "Repeatable.")
+    default = (
+        None
+        if target.required or target.converter is None
+        else _format_default(target.default)
+    )
+    return HelpRow(
+        names,
+        value,
+        _words(target.parent.help or ""),
+        tuple(notes),
+        default,
+        target.required,
+    )
+
+
+def _term(row: HelpRow) -> str:
+    names = ", ".join(row.names)
+    return names if row.value is None else f"{names} {row.value}"
+
+
+def _description(row: HelpRow, section: HelpSection) -> str:
+    parts = [row.text, *row.notes]
+    if row.required and section.kind != "arguments":
+        parts.append("(required)")
+    elif not row.required and row.default is not None:
+        parts.append(f"(default: {row.default})")
     return " ".join(part for part in parts if part)
 
 
@@ -197,8 +310,8 @@ def _format_default(value: object) -> str | None:
     return shown(value)
 
 
-def _help_position(rows: list[tuple[str, str]], width: int) -> int:
-    longest = max(len(left) for left, _ in rows)
+def _help_position(terms: list[str], width: int) -> int:
+    longest = max((len(term) for term in terms), default=0)
     return min(
         longest + _INDENT + _GAP,
         _MAX_HELP_POSITION,

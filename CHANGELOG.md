@@ -37,6 +37,7 @@
 - An `on.error()` hook right below a parent or child handles a failure to read that input, such as a missing environment variable, and its return value is used instead.
 - Command and group functions, hooks, error handlers, children and parents can be `async def`, and a group's async generator runs its teardown like a sync one.
 - An event loop runs only when something on the command line being run is async, so a sync CLI never imports asyncio, and Ctrl+C and SIGTERM cancel an async run so that its cleanup runs.
+- `Help`, `HelpSection` and `HelpRow` describe what the help of a command or group shows, with each row's names, placeholder, text, notes, default and requirement kept apart.
 
 ### Changed
 
