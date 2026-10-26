@@ -166,7 +166,7 @@ def zsh(path: Path, typed: str, cwd: Path) -> str:
     _ = (home / ".zshrc").write_text("\n".join(lines) + "\n", encoding="utf-8")
     descriptor, terminal = pty.openpty()
     process = subprocess.Popen(
-        [ZSH, "-i"],
+        [ZSH, "--no-globalrcs", "-i"],
         stdin=terminal,
         stdout=terminal,
         stderr=terminal,
@@ -192,7 +192,8 @@ def zsh(path: Path, typed: str, cwd: Path) -> str:
 def read_until(descriptor: int, marker: bytes) -> bytes:
     output = b""
     deadline = time.monotonic() + 10
-    while marker not in output and time.monotonic() < deadline:
+    while marker not in output:
+        assert time.monotonic() < deadline, f"never saw {marker!r} in {output!r}"
         ready, _, _ = select.select([descriptor], [], [], 0.1)
         if ready:
             output += os.read(descriptor, 4096)
