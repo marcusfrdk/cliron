@@ -244,8 +244,9 @@ def test_a_hook_below_a_parent_or_child_is_rejected() -> None:
     below_parent = hook(on.start(), remember)(work)
     message = (
         '@hook(on.start(), remember) is below @option("count"), so it would attach '
-        "to it, but on.start() runs around commands and groups. Move it right below "
-        "@command or @group, above the first parent."
+        "to it, but on.start() runs around commands and groups; only on.error() "
+        "attaches to parents and children. Move it right below @command or @group, "
+        "above the first parent."
     )
     with pytest.raises(TypeError, match=exactly(message)):
         _ = command("work")(option("count")(below_parent))
@@ -253,8 +254,9 @@ def test_a_hook_below_a_parent_or_child_is_rejected() -> None:
     below_child = hook(on.exit(), remember)(work)
     message = (
         "@hook(on.exit(), remember) is below @between(1, 5), so it would attach to "
-        "it, but on.exit() runs around commands and groups. Move it right below "
-        "@command or @group, above the first parent."
+        "it, but on.exit() runs around commands and groups; only on.error() "
+        "attaches to parents and children. Move it right below @command or @group, "
+        "above the first parent."
     )
     with pytest.raises(TypeError, match=exactly(message)):
         _ = command("other")(option("count")(between(1, 5)(below_child)))

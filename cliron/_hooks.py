@@ -1,9 +1,10 @@
-from collections.abc import Callable
+import typing
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from types import FunctionType, MethodType
 from typing import Literal
 
-from cliron._children import check_below
+from cliron._children import Child, check_below
 from cliron._nodes import F, nodes_of, store
 from cliron._parents import Parent, call
 
@@ -107,23 +108,64 @@ def hook(event: Event, callback: Callable[..., object]) -> Callable[[F], F]:
     return Hook(_checked_event(event), _checked_callback(callback))
 
 
-def hooks_of(function: FunctionType) -> tuple[Hook, ...]:
-    found: list[Hook] = []
+@dataclass(frozen=True)
+class Attached:
+    root: tuple[Hook, ...]
+    parents: dict[str, tuple[Hook, ...]]
+    children: dict[tuple[str, int], tuple[Hook, ...]]
+
+
+def hooks_of(function: FunctionType) -> Attached:
+    root: list[Hook] = []
+    parents: dict[str, list[Hook]] = {}
+    children: dict[tuple[str, int], list[Hook]] = {}
     above: object = None
+    name = ""
+    index = -1
     for record in nodes_of(function):
-        if not isinstance(record, Hook):
-            above = record
+        if isinstance(record, Parent):
+            above, name, index = record, record.name, -1
+        elif isinstance(record, Child):
+            above, index = record, index + 1
+        elif above is None:
+            root.append(typing.cast("Hook", record))
+        else:
+            found = typing.cast("Hook", record)
+            _check_input_hook(found, above)
+            if index < 0:
+                parents.setdefault(name, []).append(found)
+            else:
+                children.setdefault((name, index), []).append(found)
+    return Attached(
+        tuple(root),
+        {key: tuple(hooks) for key, hooks in parents.items()},
+        {key: tuple(hooks) for key, hooks in children.items()},
+    )
+
+
+def first_handler(
+    handlers: Iterable[HookCall], error: Exception
+) -> tuple[HookCall, str] | None:
+    for found in handlers:
+        if found.exception is None:
             continue
-        if above is not None:
-            written = call(above) if isinstance(above, Parent) else f"@{above!r}"
-            message = (
-                f"@{record!r} is below {written}, so it would attach to it, "
-                f"but {record.event!r} runs around commands and groups. "
-                "Move it right below @command or @group, above the first parent."
-            )
-            raise TypeError(message)
-        found.append(record)
-    return tuple(found)
+        parameter, handles = found.exception
+        if isinstance(error, handles):
+            return found, parameter
+    return None
+
+
+def _check_input_hook(found: Hook, above: object) -> None:
+    if found.event.name == "error":
+        return
+    written = call(above) if isinstance(above, Parent) else f"@{above!r}"
+    message = (
+        f"@{found!r} is below {written}, so it would attach to it, but "
+        f"{found.event!r} runs around commands and groups; only on.error() "
+        "attaches to parents and children. Move it right below @command or "
+        "@group, above the first parent."
+    )
+    raise TypeError(message)
 
 
 def _checked_event(event: object) -> Event:

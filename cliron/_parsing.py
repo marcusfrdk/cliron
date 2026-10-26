@@ -11,7 +11,7 @@ from cliron._builtin_options import DEFAULT_BUILTINS, Builtins
 from cliron._children import AnyChild, run_child
 from cliron._conversion import NUMBER, Converter, describe, fits_value
 from cliron._dependencies import Dependency, Given
-from cliron._hooks import HookCall
+from cliron._hooks import HookCall, first_handler
 from cliron._names import closest, long_flag, token
 from cliron._parents import Argument, Env, Parent, Stdin, call, flags
 
@@ -34,6 +34,9 @@ class Input:
     counted: bool = False
     children: tuple[AnyChild, ...] = ()
     accepts: object = None
+    annotation: object = None
+    handlers: tuple[HookCall, ...] = ()
+    child_handlers: tuple[tuple[HookCall, ...], ...] = ()
 
     @property
     def name(self) -> str:
@@ -171,6 +174,23 @@ class _Segment:
             self.word_errors.append((position, error))
 
     def resolve(self, target: Input, path: str) -> tuple[object, list[Exception]]:
+        try:
+            value, problems = self._read(target, path)
+        except Exception as error:
+            handler = _input_handler(target, error)
+            if handler is None:
+                raise
+            return _parent_value(target, *handler, error, self.node), []
+        if problems:
+            handler = _input_handler(target, problems[0])
+            if handler is not None:
+                try:
+                    return _parent_value(target, *handler, problems[0], self.node), []
+                except (LookupError, ValueError) as raised:
+                    return None, [raised, *problems[1:]]
+        return value, problems
+
+    def _read(self, target: Input, path: str) -> tuple[object, list[Exception]]:
         converter = target.converter
         if converter is None:
             return self._resolve_flag(target)
@@ -205,12 +225,18 @@ class _Segment:
         return value, []
 
     def _check_default(self, target: Input) -> list[Exception]:
-        checks = tuple(
-            found for found in target.children if found.default_check == "run"
-        )
-        if not checks or target.default is None:
+        runs = [
+            index
+            for index, found in enumerate(target.children)
+            if found.default_check == "run"
+        ]
+        if not runs or target.default is None:
             return []
-        checking = replace(target, children=checks)
+        checking = replace(
+            target,
+            children=tuple(target.children[index] for index in runs),
+            child_handlers=tuple(target.child_handlers[index] for index in runs),
+        )
         problems: list[Exception] = []
         for item in target.default_items:
             try:
@@ -469,19 +495,59 @@ def _value(target: Input, converter: Converter, word: str, node: Node) -> object
 
 
 def _processed(target: Input, value: object, node: Node) -> object:
-    for found in target.children:
-        value = run_child(found, value)
+    source = ""
+    for found, handlers in zip(target.children, target.child_handlers, strict=True):
+        source = f"@{found!r}"
+        try:
+            value = run_child(found, value)
+        except Exception as error:
+            handler = (
+                None
+                if isinstance(error, MistakeError)
+                else first_handler(handlers, error)
+            )
+            if handler is None:
+                raise
+            value = _call_handler(*handler, error)
+            source = f"hook function '{handler[0].hook.callback.__name__}'"
     if target.children and not fits_value(value, target.accepts):
         what = "None" if value is None else type(value).__name__
         expected = describe(target.accepts)
         message = (
-            f"@{target.children[-1]!r} returned {what}, but parameter "
+            f"{source} returned {what}, but parameter "
             f"'{target.name}' has the type {expected}. Make it return {expected}."
         )
         error = TypeError(message)
         error.add_note(location(node))
         raise MistakeError(error)
     return value
+
+
+def _input_handler(target: Input, error: Exception) -> tuple[HookCall, str] | None:
+    if isinstance(error, MistakeError):
+        return None
+    return first_handler(target.handlers, error)
+
+
+def _call_handler(handler: HookCall, parameter: str, error: Exception) -> object:
+    return typing.cast("object", handler.hook.callback(**{parameter: error}))
+
+
+def _parent_value(
+    target: Input, handler: HookCall, parameter: str, error: Exception, node: Node
+) -> object:
+    value = _call_handler(handler, parameter, error)
+    if fits_value(value, target.annotation):
+        return value
+    expected = describe(target.annotation)
+    message = (
+        f"hook function '{handler.hook.callback.__name__}' returned "
+        f"{describe(type(value))}, but parameter '{target.name}' has the type "
+        f"{expected}. Make it return {expected}."
+    )
+    mistake = TypeError(message)
+    mistake.add_note(location(node))
+    raise MistakeError(mistake) from None
 
 
 def location(root: Node) -> str:

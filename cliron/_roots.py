@@ -33,7 +33,7 @@ from cliron._conversion import (
 )
 from cliron._dependencies import Dependency, cycle_problem, dependencies_for
 from cliron._help import render_help, terminal_width, usage_hint
-from cliron._hooks import EventName, Hook, HookCall, hooks_of
+from cliron._hooks import Attached, EventName, Hook, HookCall, first_handler, hooks_of
 from cliron._names import (
     check_name,
     closest,
@@ -121,7 +121,8 @@ class Root:
         self.function: FunctionType = function
         self.parents: tuple[Parent, ...] = parents_of(function)
         self.children: dict[str, tuple[AnyChild, ...]] = children_of(function)
-        self.hooks: tuple[Hook, ...] = hooks_of(function)
+        self.attached: Attached = hooks_of(function)
+        self.hooks: tuple[Hook, ...] = self.attached.root
         self.help_option: HelpOption | None = help_option
         self.version_option: VersionOption | None = version_option
         self.dependencies: tuple[Dependency, ...] = tuple(dependencies)
@@ -441,13 +442,7 @@ def _run_span(path: list[tuple[Node, dict[str, object]]], shared: Shared) -> obj
 def _handler_for(node: Node, error: Exception) -> tuple[HookCall, str] | None:
     if isinstance(error, MistakeError):
         return None
-    for found in node.definition().hooks:
-        if found.exception is None:
-            continue
-        parameter, handles = found.exception
-        if isinstance(error, handles):
-            return found, parameter
-    return None
+    return first_handler(node.definition().hooks, error)
 
 
 def _handle(
@@ -653,11 +648,14 @@ def _definition(root: Root) -> Definition:
         if parameter.name not in shared:
             _check_parameter(root, parameter, hints.get(parameter.name))
     inputs = [
-        _input(
-            parent,
-            parameters.get(parent.name),
-            hints,
-            root.children.get(parent.name, ()),
+        _with_handlers(
+            root,
+            _input(
+                parent,
+                parameters.get(parent.name),
+                hints,
+                root.children.get(parent.name, ()),
+            ),
         )
         for parent in root.parents
     ]
@@ -665,7 +663,23 @@ def _definition(root: Root) -> Definition:
     return Definition(inputs, root.dependencies, shared, hooks, hints.get("return"))
 
 
-def _hook_call(found: Hook) -> HookCall:
+def _with_handlers(root: Root, target: Input) -> Input:
+    attached = root.attached
+    handlers = tuple(
+        _hook_call(found, on_input=True)
+        for found in attached.parents.get(target.name, ())
+    )
+    child_handlers = tuple(
+        tuple(
+            _hook_call(found, on_input=True)
+            for found in attached.children.get((target.name, index), ())
+        )
+        for index in range(len(target.children))
+    )
+    return replace(target, handlers=handlers, child_handlers=child_handlers)
+
+
+def _hook_call(found: Hook, *, on_input: bool = False) -> HookCall:
     callback = found.callback
     name = callback.__name__
     if inspect.iscoroutinefunction(callback) or inspect.isasyncgenfunction(callback):
@@ -689,6 +703,13 @@ def _hook_call(found: Hook) -> HookCall:
         kind = injected(annotation)
         if parameter.kind not in _UNSUPPORTED_KINDS and handles is not None:
             exceptions.append((parameter.name, handles))
+        elif on_input:
+            message = (
+                f"hook function {name!r} takes parameter '{parameter.name}', but "
+                "a handler on a parent or child receives only the exception, "
+                "because it runs while the inputs are read. Remove it."
+            )
+            raise TypeError(message)
         elif parameter.kind not in _UNSUPPORTED_KINDS and kind is not None:
             _take(taken, parameter.name, kind)
         else:
@@ -910,7 +931,13 @@ def _checked(
         )
     collected = converter is not None and converter.collect is not None
     accepts = base if collected else annotation
-    checked = replace(target, converter=converter, children=children, accepts=accepts)
+    checked = replace(
+        target,
+        converter=converter,
+        children=children,
+        accepts=accepts,
+        annotation=annotation,
+    )
     _check_default(checked, checked_children)
     return checked
 

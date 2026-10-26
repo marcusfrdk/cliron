@@ -34,6 +34,7 @@
 - The `hook` decorator runs a function when a command or group starts, succeeds or exits, chosen with `on.start()`, `on.success()` and `on.exit()`, and a group's hooks wrap everything inside it.
 - `Context.values` holds the values of every command and group on the path, in the same order as `Context.path`.
 - `on.error()` hooks handle the exceptions that leave a command or group, chosen by the annotation of the handler's exception parameter, and a command's handler's return value becomes its result.
+- An `on.error()` hook right below a parent or child handles a failure to read that input, such as a missing environment variable, and its return value is used instead.
 
 ### Changed
 
