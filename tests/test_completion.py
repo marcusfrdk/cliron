@@ -1,12 +1,15 @@
 import os
+import re
+import runpy
 import select
 import shutil
 import subprocess
 import sys
 import time
+from collections.abc import Callable, Mapping
 from enum import Enum
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
 import pytest
 
@@ -98,6 +101,10 @@ tags.add(rename)
 notes.add(add, list_notes, tags, plain)
 
 
+def exactly(message: str) -> str:
+    return rf"\A{re.escape(message)}(?:\n|\Z)"
+
+
 @pytest.fixture
 def place(tmp_path: Path) -> Path:
     work = tmp_path / "work"
@@ -116,15 +123,18 @@ def script(shell: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     return path
 
 
-def bash(path: Path, line: str, cwd: Path) -> list[str]:
+def bash(
+    path: Path, line: str, cwd: Path, env: Mapping[str, str] | None = None
+) -> list[str]:
     assert BASH is not None
     command = (
-        'source "$1"; COMP_LINE=$2; COMP_POINT=${#COMP_LINE}; _cliron_notes; '
+        f'source "$1"; COMP_LINE=$2; COMP_POINT=${{#COMP_LINE}}; _cliron_{path.stem}; '
         'printf "%s\\n" "${COMPREPLY[@]}"'
     )
     result = subprocess.run(
         [BASH, "--noprofile", "--norc", "-c", command, "bash", str(path), line],
         cwd=cwd,
+        env=env,
         capture_output=True,
         text=True,
         check=True,
@@ -133,7 +143,9 @@ def bash(path: Path, line: str, cwd: Path) -> list[str]:
     return sorted(word for word in result.stdout.splitlines() if word)
 
 
-def fish(path: Path, line: str, cwd: Path) -> list[str]:
+def fish(
+    path: Path, line: str, cwd: Path, env: Mapping[str, str] | None = None
+) -> list[str]:
     assert FISH is not None
     result = subprocess.run(
         [
@@ -145,6 +157,7 @@ def fish(path: Path, line: str, cwd: Path) -> list[str]:
             line,
         ],
         cwd=cwd,
+        env=env,
         capture_output=True,
         text=True,
         check=True,
@@ -153,7 +166,7 @@ def fish(path: Path, line: str, cwd: Path) -> list[str]:
     return sorted(result.stdout.splitlines())
 
 
-def zsh(path: Path, typed: str, cwd: Path) -> str:
+def zsh(path: Path, typed: str, cwd: Path, env: Mapping[str, str] = os.environ) -> str:
     assert ZSH is not None
     home = cwd / ".zsh"
     home.mkdir(exist_ok=True)
@@ -163,14 +176,27 @@ def zsh(path: Path, typed: str, cwd: Path) -> str:
         "PS1='$ '",
     ]
     _ = (home / ".zshrc").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    shell = [ZSH, "--no-globalrcs", "-i"]
+    return type_tab(shell, {**env, "ZDOTDIR": str(home)}, typed, cwd)
+
+
+def bash_terminal(path: Path, typed: str, cwd: Path, env: Mapping[str, str]) -> str:
+    assert BASH is not None
+    rc = cwd / ".bashrc"
+    _ = rc.write_text(f"source {path}\nPS1='$ '\n", encoding="utf-8")
+    shell = [BASH, "--rcfile", str(rc), "-i"]
+    return type_tab(shell, {**env, "INPUTRC": os.devnull}, typed, cwd)
+
+
+def type_tab(shell: list[str], env: Mapping[str, str], typed: str, cwd: Path) -> str:
     descriptor, terminal = os.openpty()
     process = subprocess.Popen(
-        [ZSH, "--no-globalrcs", "-i"],
+        shell,
         stdin=terminal,
         stdout=terminal,
         stderr=terminal,
         cwd=cwd,
-        env={**os.environ, "ZDOTDIR": str(home)},
+        env=env,
         start_new_session=True,
     )
     os.close(terminal)
@@ -178,7 +204,7 @@ def zsh(path: Path, typed: str, cwd: Path) -> str:
         _ = read_until(descriptor, b"$ ")
         _ = os.write(descriptor, typed.encode() + b"\t")
         time.sleep(0.5)
-        _ = os.write(descriptor, b"\x01print -r -- '<\x05>'\n")
+        _ = os.write(descriptor, b"\x01printf '%s\\n' '<\x05>'\n")
         output = read_until(descriptor, b">\r\n").decode(errors="replace")
     finally:
         process.kill()
@@ -401,3 +427,276 @@ def test_generating_a_script_runs_nothing() -> None:
 
     assert run(tool, ["--completion", "bash"]).returncode == 0
     assert calls == []
+
+
+TASKS = """
+import asyncio
+from pathlib import Path
+
+from cliron import argument, command, group, option
+
+TITLES = ["shopping list", "ideas", "idle thoughts"]
+
+
+def titles(typed: str) -> list[str]:
+    return [title for title in TITLES if title.startswith(typed)]
+
+
+async def tags(typed: str) -> list[str]:
+    await asyncio.sleep(0)
+    return ["work", "home"]
+
+
+def broken(typed: str) -> list[str]:
+    raise RuntimeError(typed)
+
+
+@group("tasks")
+@option("profile", completions=titles)
+def tasks(profile: str = "") -> None:
+    \"\"\"Track tasks.\"\"\"
+
+
+@command("open", aliases="o")
+@argument("title", completions=titles)
+@option("tag", "-t", completions=tags)
+@option("region", completions=["eu-north", "us-east"])
+@option("into", completions=["here", "there"])
+@option("bad", completions=broken)
+def open_task(
+    title: str,
+    tag: str = "",
+    region: str = "",
+    into: Path = Path("."),
+    bad: str = "",
+) -> str:
+    \"\"\"Open a task.\"\"\"
+    return " ".join(value for value in (title, tag, region) if value)
+
+
+tasks.add(open_task)
+"""
+
+
+@pytest.fixture
+def program(tmp_path: Path) -> Path:
+    module = tmp_path / "tasks.py"
+    _ = module.write_text(TASKS, encoding="utf-8")
+    directory = tmp_path / "bin"
+    directory.mkdir()
+    path = directory / "tasks"
+    lines = [
+        f"#!{sys.executable}",
+        "import runpy",
+        f"runpy.run_path({str(module)!r})['tasks']()",
+    ]
+    _ = path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    path.chmod(0o755)
+    return path
+
+
+def run_tasks(program: Path, args: list[str]) -> subprocess.CompletedProcess[str]:
+    cli = cast(
+        "object", runpy.run_path(str(program.parent.parent / "tasks.py"))["tasks"]
+    )
+    assert isinstance(cli, type(notes))
+    return run(cli, args)
+
+
+@pytest.fixture
+def tasks_env(program: Path) -> dict[str, str]:
+    return {**os.environ, "PATH": f"{program.parent}{os.pathsep}{os.environ['PATH']}"}
+
+
+@pytest.fixture
+def tasks_script(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, program: Path
+) -> Callable[[str], Path]:
+    monkeypatch.setattr(sys, "argv", [str(program)])
+
+    def generate(shell: str) -> Path:
+        result = run_tasks(program, ["--completion", shell])
+        assert result.returncode == 0
+        path = tmp_path / f"tasks.{shell}"
+        _ = path.write_text(result.stdout, encoding="utf-8")
+        return path
+
+    return generate
+
+
+TITLES = ["ideas", "idle thoughts", "shopping list"]
+
+
+@POSIX
+@pytest.mark.skipif(BASH is None, reason="needs bash")
+@pytest.mark.parametrize(
+    ("line", "expected"),
+    [
+        ("tasks open ", TITLES),
+        ("tasks o id", ["ideas", "idle thoughts"]),
+        ("tasks open x --tag ", ["home", "work"]),
+        ("tasks open x --tag=w", ["work"]),
+        ("tasks open x --region ", ["eu-north", "us-east"]),
+        ("tasks open x --into ", ["here", "there"]),
+        ("tasks open x --bad ", []),
+        ("tasks --profile ", TITLES),
+    ],
+)
+def test_bash_completes_values_from_the_program(
+    tasks_script: Callable[[str], Path],
+    tasks_env: dict[str, str],
+    place: Path,
+    line: str,
+    expected: list[str],
+) -> None:
+    path = tasks_script("bash")
+
+    assert bash(path, line, place, tasks_env) == expected
+
+
+@POSIX
+@pytest.mark.skipif(FISH is None, reason="needs fish")
+@pytest.mark.parametrize(
+    ("line", "expected"),
+    [
+        ("tasks open id", ["ideas", "idle thoughts"]),
+        ("tasks open x -t ", ["home", "work"]),
+        ("tasks open x --tag=", ["--tag=home", "--tag=work"]),
+        ("tasks open x --bad ", []),
+    ],
+)
+def test_fish_completes_values_from_the_program(
+    tasks_script: Callable[[str], Path],
+    tasks_env: dict[str, str],
+    place: Path,
+    line: str,
+    expected: list[str],
+) -> None:
+    path = tasks_script("fish")
+
+    assert fish(path, line, place, tasks_env) == expected
+
+
+@POSIX
+@pytest.mark.skipif(ZSH is None, reason="needs zsh")
+@pytest.mark.parametrize(
+    ("typed", "completed"),
+    [
+        ("tasks open shop", "tasks open shopping\\ list"),
+        ("tasks open x -t w", "tasks open x -t work"),
+        ("tasks --profile ide", "tasks --profile ideas"),
+    ],
+)
+def test_zsh_completes_values_from_the_program(
+    tasks_script: Callable[[str], Path],
+    tasks_env: dict[str, str],
+    place: Path,
+    typed: str,
+    completed: str,
+) -> None:
+    path = tasks_script("zsh")
+
+    assert zsh(path, typed, place, tasks_env) == completed
+
+
+@POSIX
+@pytest.mark.skipif(BASH is None, reason="needs bash")
+def test_bash_quotes_a_value_with_a_space(
+    tasks_script: Callable[[str], Path], tasks_env: dict[str, str], place: Path
+) -> None:
+    path = tasks_script("bash")
+
+    typed = bash_terminal(path, "tasks open shop", place, tasks_env)
+
+    assert typed == "tasks open shopping\\ list "
+
+
+@pytest.mark.parametrize(
+    ("words", "output"),
+    [
+        (["open", "title", "id"], "ideas\nidle thoughts\n"),
+        (["open", "title", ""], "shopping list\nideas\nidle thoughts\n"),
+        (["open", "tag", ""], "work\nhome\n"),
+        (["", "profile", "i"], "ideas\nidle thoughts\n"),
+        (["open", "bad", ""], ""),
+        (["nope", "title", ""], ""),
+        (["open", "nope", ""], ""),
+        (["open", "region", ""], ""),
+        (["open", "title"], ""),
+    ],
+)
+def test_the_hidden_request_prints_the_function_values(
+    program: Path, words: list[str], output: str
+) -> None:
+    result = run_tasks(program, ["--completion", "values", *words])
+
+    assert result.returncode == 0
+    assert result.stdout == output
+    assert result.stderr == ""
+
+
+def test_completions_dont_limit_what_is_accepted(program: Path) -> None:
+    result = run_tasks(program, ["open", "anything", "--region", "mars"])
+
+    assert result.stdout == "anything mars\n"
+
+
+@pytest.mark.parametrize(
+    "returned", ["ideas", 3, ["ideas", 3], ["two\nlines"], RuntimeError("down")]
+)
+def test_a_function_that_fails_gives_no_values(returned: object) -> None:
+    def broken(typed: str) -> list[str]:
+        if isinstance(returned, Exception):
+            raise returned
+        _ = typed
+        return cast("list[str]", returned)
+
+    @command("open")
+    @argument("title", completions=broken)
+    def show(title: str) -> None:
+        _ = title
+
+    result = run(show, ["--completion", "values", "", "title", ""])
+
+    assert result.returncode == 0
+    assert result.stdout == ""
+    assert result.stderr == ""
+
+
+@pytest.mark.parametrize("parent", [argument, option])
+@pytest.mark.parametrize("completions", ["eu", 3, ["eu", 3]])
+def test_completions_must_be_a_list_or_a_function(
+    parent: Callable[..., object], completions: object
+) -> None:
+    kind = parent.__name__
+    message = (
+        f"@{kind} takes completions as a list of values or a function, "
+        "such as ['eu', 'us'] or def regions(typed: str) -> list[str], "
+        f"not {completions!r}."
+    )
+    with pytest.raises(TypeError, match=exactly(message)):
+        _ = parent("region", completions=completions)
+
+
+@pytest.mark.parametrize("parent", [argument, option])
+def test_a_completions_function_takes_the_typed_text(
+    parent: Callable[..., object],
+) -> None:
+    def pair(typed: str, other: str) -> list[str]:
+        return [typed, other]
+
+    message = (
+        "completions function 'pair' must take the text typed so far as its only "
+        "argument, such as def pair(typed: str) -> list[str]."
+    )
+    with pytest.raises(TypeError, match=exactly(message)):
+        _ = parent("region", completions=pair)
+
+
+def test_a_completion_value_must_fit_on_one_line() -> None:
+    message = (
+        "completions of @option has 'eu\\n', which can't be typed. "
+        "Remove its line breaks and other control characters."
+    )
+    with pytest.raises(ValueError, match=exactly(message)):
+        _ = option("region", completions=["eu\n"])

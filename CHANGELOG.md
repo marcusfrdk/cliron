@@ -39,6 +39,7 @@
 - An event loop runs only when something on the command line being run is async, so a sync CLI never imports asyncio, and Ctrl+C and SIGTERM cancel an async run so that its cleanup runs.
 - Every CLI prints a shell completion script for bash, zsh or fish with a hidden `--completion SHELL`, completing commands, options, choices and paths without starting Python on Tab.
 - The `aliases` parameter of `command` and `group` takes one name or a list of names that run it too, such as `@command("list", aliases="ls")`, and help and shell completion show them with the name.
+- The `completions` parameter of `argument` and `option` sets what shell completion offers: a list of values, or a function that takes the text typed so far and runs when Tab is pressed, such as one that reads names from a database.
 
 ### Changed
 

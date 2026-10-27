@@ -1,7 +1,15 @@
+import contextlib
 import inspect
 import sys
 import typing
-from collections.abc import AsyncGenerator, Callable, Coroutine, Generator, Sequence
+from collections.abc import (
+    AsyncGenerator,
+    Callable,
+    Coroutine,
+    Generator,
+    Iterable,
+    Sequence,
+)
 from dataclasses import dataclass, replace
 from pathlib import Path
 from types import FunctionType, MappingProxyType, NoneType
@@ -24,7 +32,7 @@ from cliron._children import (
     misfit,
     run_child,
 )
-from cliron._completion import completion_script
+from cliron._completion import completion_script, suggester
 from cliron._context import Context, injected
 from cliron._conversion import (
     SUPPORTED,
@@ -54,6 +62,7 @@ from cliron._parents import (
     Flag,
     Parent,
     Stdin,
+    Suggest,
     call,
     children_of,
     flags,
@@ -61,6 +70,7 @@ from cliron._parents import (
     parents_of,
 )
 from cliron._parsing import (
+    VALUES,
     Definition,
     Input,
     MistakeError,
@@ -670,7 +680,23 @@ def _mistake(node: Node, message: str) -> MistakeError:
     return MistakeError(error)
 
 
+async def _suggestions(function: Suggest, typed: str) -> int:
+    values = await settled(function(typed))
+    if isinstance(values, str) or not isinstance(values, Iterable):
+        return 0
+    listed = list(values)
+    if all(isinstance(value, str) and value.isprintable() for value in listed):
+        _ = sys.stdout.write("".join(f"{value}\n" for value in listed))
+    return 0
+
+
 def _answer(request: Request) -> int:
+    if request.kind == VALUES:
+        with contextlib.suppress(Exception):
+            path, name, typed = request.words
+            function = suggester(request.nodes[0], path, name)
+            _ = _drive(_suggestions(function, typed), needs_loop=is_async(function))
+        return 0
     if request.kind == "completion":
         root = request.nodes[0]
         program = Path(sys.argv[0]).name or token(root.name)

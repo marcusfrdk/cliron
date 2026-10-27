@@ -22,6 +22,7 @@ _LINE_BREAK = re.compile(r"\r?\n")
 
 COMPLETION = "--completion"
 SHELLS = ("bash", "zsh", "fish")
+VALUES = "values"
 
 
 class MistakeError(Exception):
@@ -119,6 +120,7 @@ class Request:
     nodes: list[Node]
     builtins: Builtins
     value: str = ""
+    words: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -282,6 +284,7 @@ class Reader:
         self.segments: list[_Segment] = []
         self.request: tuple[str, int] | None = None
         self.shell: str = ""
+        self.words: tuple[str, ...] = ()
         self.bare: tuple[int, Exception] | None = None
 
     def read(self, root: Node) -> Request | None:
@@ -311,7 +314,8 @@ class Reader:
 
     def _request(self, kind: str, index: int) -> Request:
         nodes = [segment.node for segment in self.segments[: index + 1]]
-        return Request(kind, nodes, self.segments[index].builtins, self.shell)
+        builtins = self.segments[index].builtins
+        return Request(kind, nodes, builtins, self.shell, self.words)
 
     def _read_segment(self, segment: _Segment) -> None:
         while self.position < len(self.args):
@@ -423,6 +427,11 @@ class Reader:
                 return
             value = self.args[self.position]
             self.position += 1
+        if value == VALUES:
+            self.words = tuple(self.args[self.position :])
+            self.position = len(self.args)
+            self.request = (VALUES, 0)
+            return
         if value not in SHELLS:
             message = (
                 f"{COMPLETION}: {value!r} isn't one of {', '.join(SHELLS)}."

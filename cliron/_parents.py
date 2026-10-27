@@ -2,8 +2,9 @@ import inspect
 import os
 import stat
 import sys
+import typing
 from abc import ABC, abstractmethod
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterable, Sequence
 from dataclasses import dataclass
 from types import FunctionType
 from typing import ClassVar, Protocol, TextIO, final
@@ -19,6 +20,7 @@ from cliron._names import (
 from cliron._nodes import F, nodes_of, store
 
 Loader = Callable[[str], str | Awaitable[str | None] | None]
+Suggest = Callable[[str], Iterable[str] | Awaitable[Iterable[str]]]
 
 
 class Parent(ABC):
@@ -99,6 +101,7 @@ class Argument(CommandLineParent):
     decorator: ClassVar[str] = "argument"
     name: str
     help: str | None = None
+    completions: tuple[str, ...] | Suggest | None = None
 
     def label(self) -> str:
         return placeholder(self.name)
@@ -110,6 +113,7 @@ class Option(CommandLineParent):
     name: str
     short: str | None = None
     help: str | None = None
+    completions: tuple[str, ...] | Suggest | None = None
 
     def label(self) -> str:
         return _flag_label(self.name, self.short)
@@ -262,7 +266,12 @@ def parent(function: Loader) -> ParentFactory:
     return make
 
 
-def argument(name: str, *, help: str | None = None) -> Callable[[F], F]:
+def argument(
+    name: str,
+    *,
+    help: str | None = None,
+    completions: Sequence[str] | Suggest | None = None,
+) -> Callable[[F], F]:
     """
     Fill a parameter from a word on the command line.
 
@@ -272,17 +281,32 @@ def argument(name: str, *, help: str | None = None) -> Callable[[F], F]:
     :param name: The parameter's name, in snake_case. Help and errors show it in
         capitals, such as ``NAME``.
     :param help: What the argument is for, shown in the command's help.
+    :param completions: What shell completion offers for the argument: a list of
+        values, or a function that takes the text typed so far and returns the
+        values, which runs each time Tab is pressed and may be ``async def``.
+        Either replaces the files or choices offered otherwise, and neither
+        limits what the argument accepts.
     :returns: A decorator for the function of a command.
-    :raises TypeError: If ``name`` or ``help`` isn't a string.
-    :raises ValueError: If ``name`` isn't snake_case or is a Python keyword.
+    :raises TypeError: If ``name`` or ``help`` isn't a string, or
+        ``completions`` isn't a list of strings or a function that takes one
+        argument.
+    :raises ValueError: If ``name`` isn't snake_case or is a Python keyword, or
+        a value in ``completions`` has a line break or another control
+        character.
     """
     return Argument(
-        check_parameter_name(name, "argument"), _check_help(help, "argument")
+        check_parameter_name(name, "argument"),
+        _check_help(help, "argument"),
+        _check_completions(completions, "argument"),
     )
 
 
 def option(
-    name: str, short: str | None = None, *, help: str | None = None
+    name: str,
+    short: str | None = None,
+    *,
+    help: str | None = None,
+    completions: Sequence[str] | Suggest | None = None,
 ) -> Callable[[F], F]:
     """
     Fill a parameter from an option that takes a value, such as ``--count 3``.
@@ -291,15 +315,24 @@ def option(
         from it: ``dry_run`` becomes ``--dry-run``.
     :param short: A short flag, such as ``"-c"``.
     :param help: What the option is for, shown in the help.
+    :param completions: What shell completion offers for the option's value: a
+        list of values, or a function that takes the text typed so far and
+        returns the values, which runs each time Tab is pressed and may be
+        ``async def``. Either replaces the files or choices offered otherwise,
+        and neither limits what the option accepts.
     :returns: A decorator for the function of a command or group.
-    :raises TypeError: If ``name``, ``short`` or ``help`` isn't a string.
-    :raises ValueError: If ``name`` isn't snake_case or is a Python keyword, or
-        ``short`` isn't a dash and one ASCII letter.
+    :raises TypeError: If ``name``, ``short`` or ``help`` isn't a string, or
+        ``completions`` isn't a list of strings or a function that takes one
+        argument.
+    :raises ValueError: If ``name`` isn't snake_case or is a Python keyword,
+        ``short`` isn't a dash and one ASCII letter, or a value in
+        ``completions`` has a line break or another control character.
     """
     return Option(
         check_parameter_name(name, "option"),
         check_short(short, "option"),
         _check_help(help, "option"),
+        _check_completions(completions, "option"),
     )
 
 
@@ -390,3 +423,47 @@ def _check_help(help: object, decorator: str) -> str | None:
         f'@{decorator} takes help as a string, such as help="How many.", not {help!r}.'
     )
     raise TypeError(message)
+
+
+def _check_completions(
+    completions: object, decorator: str
+) -> tuple[str, ...] | Suggest | None:
+    if completions is None:
+        return None
+    if callable(completions):
+        return _check_suggest(completions)
+    if isinstance(completions, str) or not isinstance(completions, Sequence):
+        raise TypeError(_not_completions(completions, decorator))
+    values: list[str] = []
+    for value in completions:
+        if not isinstance(value, str):
+            raise TypeError(_not_completions(completions, decorator))
+        if not value.isprintable():
+            message = (
+                f"completions of @{decorator} has {value!r}, which can't be typed. "
+                "Remove its line breaks and other control characters."
+            )
+            raise ValueError(message)
+        values.append(value)
+    return tuple(values)
+
+
+def _check_suggest(function: Callable[..., object]) -> Suggest:
+    try:
+        _ = inspect.signature(function).bind("typed")
+    except TypeError:
+        name = getattr(function, "__name__", "titles")
+        message = (
+            f"completions function '{name}' must take the text typed so far as its "
+            f"only argument, such as def {name}(typed: str) -> list[str]."
+        )
+        raise TypeError(message) from None
+    return typing.cast("Suggest", function)
+
+
+def _not_completions(completions: object, decorator: str) -> str:
+    return (
+        f"@{decorator} takes completions as a list of values or a function, "
+        "such as ['eu', 'us'] or def regions(typed: str) -> list[str], "
+        f"not {completions!r}."
+    )

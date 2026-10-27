@@ -6,7 +6,7 @@ from cliron._builtin_options import DEFAULT_BUILTINS, Builtins
 from cliron._conversion import value_type
 from cliron._help import first_line, plain
 from cliron._names import token
-from cliron._parents import Argument, Flag, Option, flags
+from cliron._parents import Argument, Flag, Option, Parent, Suggest, flags
 from cliron._parsing import Input, Node
 from cliron._paths import PathCheck
 
@@ -140,14 +140,19 @@ __FUNCTION__() {
     if [[ -n $record ]]; then
         IFS=$us read -r -a fields <<< "${__FUNCTION___records[record]}"
         kind=${fields[2]}
+        compopt -o filenames 2> /dev/null
         if [[ $kind == choices ]]; then
             candidates=("${fields[@]:6}")
         elif [[ $kind == file || $kind == directory ]]; then
-            compopt -o filenames 2> /dev/null
             [[ $kind == file ]] && kind=-f || kind=-d
             while IFS= read -r word; do
                 candidates+=("$word")
             done < <(compgen "$kind" -- "$value")
+        elif [[ $kind == call ]]; then
+            while IFS= read -r word; do
+                candidates+=("$word")
+            done < <(__PROGRAM__ --completion values "${fields[6]}" "${fields[7]}" \
+                "$value" 2> /dev/null)
         fi
     fi
     COMPREPLY=()
@@ -294,6 +299,12 @@ __FUNCTION__() {
         choices) compadd -- "${(@)reply[7,-1]}" ;;
         file) _files ;;
         directory) _files -/ ;;
+        call)
+            local -a values
+            values=(${(f)"$(__PROGRAM__ --completion values "$reply[7]" "$reply[8]" \
+                "$PREFIX" 2> /dev/null)"})
+            compadd -- "${values[@]}"
+            ;;
         *) return 1 ;;
     esac
 }
@@ -442,6 +453,11 @@ function __FUNCTION__
             for path in (__fish_complete_directories $value)
                 printf '%s%s\n' "$prefix" $path
             end
+        case call
+            for value in (__PROGRAM__ --completion values "$fields[7]" "$fields[8]" \
+                    "$value" 2>/dev/null)
+                printf '%s%s\n' "$prefix" $value
+            end
     end
 end
 
@@ -465,19 +481,19 @@ def completion_script(root: Node, shell: str, program: str) -> str:
 
 def _records(root: Node) -> list[str]:
     records: list[str] = []
-    pending: list[tuple[Node, Builtins, int]] = [(root, DEFAULT_BUILTINS, 0)]
+    pending: list[tuple[Node, Builtins, int, str]] = [(root, DEFAULT_BUILTINS, 0, "")]
     count = 1
     while pending:
-        node, inherited, index = pending.pop(0)
+        node, inherited, index, path = pending.pop(0)
         builtins = node.builtins(inherited)
         for target in node.definition().inputs:
             if isinstance(target.parent, Argument):
-                kind, choices = _values(target)
+                kind, choices = _values(target, path)
                 records.append(
                     _record("A", index, kind, int(target.multiple), "", "", *choices)
                 )
             elif isinstance(target.parent, Option | Flag):
-                records.append(_option(index, target))
+                records.append(_option(index, target, path))
         if builtins.version is not None:
             shown = " ".join(builtins.version.flags)
             records.append(
@@ -493,20 +509,25 @@ def _records(root: Node) -> list[str]:
             records.extend(
                 _record("C", index, count, word, first_line(child)) for word in words
             )
-            pending.append((child, builtins, count))
+            pending.append((child, builtins, count, f"{path} {name}".lstrip()))
             count += 1
     return records
 
 
-def _option(index: int, target: Input) -> str:
-    kind, choices = ("flag", ()) if target.converter is None else _values(target)
+def _option(index: int, target: Input, path: str) -> str:
+    kind, choices = ("flag", ()) if target.converter is None else _values(target, path)
     once = not (target.multiple or target.counted)
     names = " ".join(flags(target.parent))
     text = plain(target.parent.help or "")
     return _record("O", index, kind, int(once), names, text, *choices)
 
 
-def _values(target: Input) -> tuple[str, tuple[str, ...]]:
+def _values(target: Input, path: str) -> tuple[str, tuple[str, ...]]:
+    completions = _completions(target.parent)
+    if callable(completions):
+        return "call", (path, target.name)
+    if completions is not None:
+        return "choices", completions
     converter = target.converter
     if converter is not None and converter.choices:
         return "choices", converter.choices
@@ -518,6 +539,22 @@ def _values(target: Input) -> tuple[str, tuple[str, ...]]:
         )
         return ("directory" if directory else "file"), ()
     return "none", ()
+
+
+def suggester(root: Node, path: str, name: str) -> Suggest:
+    node = root
+    for word in path.split():
+        node = node.commands[word]
+    parents = {target.name: target.parent for target in node.definition().inputs}
+    completions = _completions(parents[name])
+    if not callable(completions):
+        message = f"{name!r} has no completions function."
+        raise TypeError(message)
+    return completions
+
+
+def _completions(parent: Parent) -> tuple[str, ...] | Suggest | None:
+    return parent.completions if isinstance(parent, Argument | Option) else None
 
 
 def _record(*fields: object) -> str:
