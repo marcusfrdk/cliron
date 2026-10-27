@@ -63,7 +63,7 @@ def add(
     _ = (text, tag, color, attach)
 
 
-@command("list")
+@command("list", aliases="ls")
 @argument("folders", help="Where to look.")
 @directory(exists=None)
 @option("sort", "-s", help="Sort by name\\size.")
@@ -204,7 +204,7 @@ def read_until(descriptor: int, marker: bytes) -> bytes:
 @pytest.mark.parametrize(
     ("line", "expected"),
     [
-        ("notes ", ["add", "list", "plain", "tags"]),
+        ("notes ", ["add", "list", "ls", "plain", "tags"]),
         ("notes ta", ["tags"]),
         ("notes -", ["--help", "--quiet", "--version", "-h", "-q"]),
         ("notes -q -", ["--help", "--version", "-h"]),
@@ -218,6 +218,8 @@ def read_until(descriptor: int, marker: bytes) -> bytes:
         ("notes add -a a.txt -a ", ["a.txt", "docs"]),
         ("notes add -- -", []),
         ("notes list ", ["docs"]),
+        ("notes l", ["list", "ls"]),
+        ("notes ls --sort ", ["modified", "name", "size"]),
         ("notes list --sort ", ["modified", "name", "size"]),
         ("notes list -vs n", ["name"]),
         ("notes list -v -v --verb", ["--verbose"]),
@@ -249,6 +251,7 @@ def test_bash_completes_from_the_tree(
             [
                 "add\tAdd a note.",
                 "list\tList notes.",
+                "ls\tList notes.",
                 "plain\tShow nothing.",
                 "tags\tWork with tags.",
             ],
@@ -265,6 +268,8 @@ def test_bash_completes_from_the_tree(
         ),
         ("notes add --color=da", ["--color=dark-red"]),
         ("notes list -vs ", ["modified", "name", "size"]),
+        ("notes l", ["list\tList notes.", "ls\tList notes."]),
+        ("notes ls --s", ["--sort\tSort by name\\size."]),
         ("notes list d", ["docs/\tDirectory"]),
         ("notes add -a ", ["a.txt", "docs/"]),
         ("notes nope ", []),
@@ -292,6 +297,7 @@ def test_fish_completes_from_the_tree_with_descriptions(
         ("notes add --co", "notes add --color"),
         ("notes add --color=dark", "notes add --color=dark-red"),
         ("notes list --sort mod", "notes list --sort modified"),
+        ("notes ls --sort mod", "notes ls --sort modified"),
         ("notes list d", "notes list docs"),
         ("notes -q --ver", "notes -q --version"),
     ],

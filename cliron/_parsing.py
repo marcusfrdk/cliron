@@ -100,7 +100,13 @@ class Node(Protocol):
     def function(self) -> Callable[..., object]: ...
 
     @property
+    def aliases(self) -> tuple[str, ...]: ...
+
+    @property
     def commands(self) -> Mapping[str, "Node"]: ...
+
+    @property
+    def names(self) -> Mapping[str, "Node"]: ...
 
     def definition(self) -> Definition: ...
 
@@ -327,7 +333,7 @@ class Reader:
     def _read_command(self, segment: _Segment) -> Node | None:
         if segment.node.kind != "group":
             return None
-        commands = segment.node.commands
+        names = segment.node.names
         path = node_path(part.node for part in self.segments)
         if self.position == len(self.args):
             error = LookupError(f"'{path}' needs a command.")
@@ -338,9 +344,9 @@ class Reader:
         start = self.position
         word = self.args[start]
         self.position += 1
-        command = commands.get(word)
+        command = names.get(word)
         if command is None:
-            message = f"{word!r} isn't a {path} command.{_suggestion(word, commands)}"
+            message = f"{word!r} isn't a {path} command.{_suggestion(word, names)}"
             segment.word_errors.append((start, ValueError(message)))
         return command
 
@@ -488,7 +494,7 @@ class Reader:
         return more or (
             self.position < len(self.args)
             and not _is_option(self.args[self.position])
-            and self.args[self.position] not in segment.node.commands
+            and self.args[self.position] not in segment.node.names
         )
 
     def _report_unknown(self) -> None:

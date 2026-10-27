@@ -1,6 +1,6 @@
 import keyword
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 
 _SNAKE_CASE = re.compile(r"[a-z][a-z0-9]*(?:_[a-z0-9]+)*")
 _WORD = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z0-9]+")
@@ -14,6 +14,33 @@ def check_name(name: object, decorator: str) -> str:
     if is_snake_case(text):
         return text
     raise ValueError(_not_snake_case(text, snake_case(text)))
+
+
+def check_aliases(aliases: object, name: str, decorator: str) -> tuple[str, ...]:
+    if isinstance(aliases, str):
+        return (_check_alias(aliases, name, decorator),)
+    if not isinstance(aliases, Sequence):
+        raise TypeError(_not_aliases(aliases, decorator))
+    checked: list[str] = []
+    for alias in aliases:
+        if not isinstance(alias, str):
+            raise TypeError(_not_aliases(aliases, decorator))
+        if _check_alias(alias, name, decorator) in checked:
+            message = f"aliases of @{decorator} lists {alias!r} twice. Remove one."
+            raise ValueError(message)
+        checked.append(alias)
+    return tuple(checked)
+
+
+def _check_alias(alias: str, name: str, decorator: str) -> str:
+    if not is_snake_case(alias):
+        raise ValueError(_not_snake_case(alias, snake_case(alias)))
+    if alias == name:
+        message = (
+            f"{alias!r} is already the {decorator}'s name. Remove it from aliases."
+        )
+        raise ValueError(message)
+    return alias
 
 
 def check_parameter_name(name: object, decorator: str) -> str:
@@ -115,6 +142,13 @@ def _text(name: object, decorator: str) -> str:
         return name
     message = f'@{decorator} needs a name in parentheses, such as @{decorator}("name").'
     raise TypeError(message)
+
+
+def _not_aliases(aliases: object, decorator: str) -> str:
+    return (
+        f"@{decorator} takes aliases as a name or a list of names, "
+        f"such as 'ls' or ['ls', 'l'], not {aliases!r}."
+    )
 
 
 def _not_snake_case(name: str, suggestion: str | None) -> str:

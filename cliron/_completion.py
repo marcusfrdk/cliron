@@ -5,6 +5,7 @@ from pathlib import PurePath
 from cliron._builtin_options import DEFAULT_BUILTINS, Builtins
 from cliron._conversion import value_type
 from cliron._help import first_line, plain
+from cliron._names import token
 from cliron._parents import Argument, Flag, Option, flags
 from cliron._parsing import Input, Node
 from cliron._paths import PathCheck
@@ -488,7 +489,10 @@ def _records(root: Node) -> list[str]:
                 _record("O", index, "flag", 1, shown, "Show this help and exit.")
             )
         for name, child in node.commands.items():
-            records.append(_record("C", index, count, name, first_line(child)))
+            words = (name, *(token(alias) for alias in child.aliases))
+            records.extend(
+                _record("C", index, count, word, first_line(child)) for word in words
+            )
             pending.append((child, builtins, count))
             count += 1
     return records

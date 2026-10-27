@@ -38,6 +38,7 @@
 - Command and group functions, hooks, error handlers, children and parents can be `async def`, and a group's async generator runs its teardown like a sync one.
 - An event loop runs only when something on the command line being run is async, so a sync CLI never imports asyncio, and Ctrl+C and SIGTERM cancel an async run so that its cleanup runs.
 - Every CLI prints a shell completion script for bash, zsh or fish with a hidden `--completion SHELL`, completing commands, options, choices and paths without starting Python on Tab.
+- The `aliases` parameter of `command` and `group` takes one name or a list of names that run it too, such as `@command("list", aliases="ls")`, and help and shell completion show them with the name.
 
 ### Changed
 

@@ -2,7 +2,7 @@ import inspect
 import sys
 import typing
 from collections.abc import AsyncGenerator, Callable, Coroutine, Generator, Sequence
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from types import FunctionType, MappingProxyType, NoneType
 from typing import ClassVar, NoReturn
@@ -39,6 +39,7 @@ from cliron._dependencies import Dependency, cycle_problem, dependencies_for
 from cliron._help import render_help, terminal_width, usage_hint
 from cliron._hooks import Attached, EventName, Hook, HookCall, first_handler, hooks_of
 from cliron._names import (
+    check_aliases,
     check_name,
     closest,
     is_parameter_name,
@@ -86,6 +87,14 @@ _UNSUPPORTED_KINDS = {
 }
 
 
+@dataclass(frozen=True)
+class Settings:
+    aliases: tuple[str, ...]
+    help_option: HelpOption | None
+    version_option: VersionOption | None
+    dependencies: tuple[Dependency, ...]
+
+
 class Root:
     """
     A command or a group of commands.
@@ -99,18 +108,15 @@ class Root:
         self,
         name: str,
         function: Callable[..., object],
-        help_option: HelpOption | None = None,
-        version_option: VersionOption | None = None,
-        dependencies: Sequence[Dependency] = (),
+        settings: Settings,
     ) -> None:
         """
         Turn a function into a command or group.
 
         :param name: The name, in snake_case.
         :param function: The function to run.
-        :param help_option: The help flags, or ``None`` to inherit them.
-        :param version_option: The version, or ``None`` to inherit it.
-        :param dependencies: The dependencies between the inputs.
+        :param settings: The aliases, the help flags and version, or ``None`` to
+            inherit them, and the dependencies between the inputs.
         :raises TypeError: If ``function`` isn't a function, or a group has an
             argument or reads stdin.
         :raises ValueError: If two parents share a name, a flag or an
@@ -124,15 +130,17 @@ class Root:
             )
             raise TypeError(message)
         self.name: str = name
+        self.aliases: tuple[str, ...] = settings.aliases
         self.function: FunctionType = function
         self.parents: tuple[Parent, ...] = parents_of(function)
         self.children: dict[str, tuple[AnyChild, ...]] = children_of(function)
         self.attached: Attached = hooks_of(function)
         self.hooks: tuple[Hook, ...] = self.attached.root
-        self.help_option: HelpOption | None = help_option
-        self.version_option: VersionOption | None = version_option
-        self.dependencies: tuple[Dependency, ...] = tuple(dependencies)
+        self.help_option: HelpOption | None = settings.help_option
+        self.version_option: VersionOption | None = settings.version_option
+        self.dependencies: tuple[Dependency, ...] = settings.dependencies
         self.commands: dict[str, Command | Group] = {}
+        self.names: dict[str, Command | Group] = {}
         self._definition: Definition | None = None
         self._check_parents()
         self._check_dependency_names()
@@ -251,24 +259,21 @@ class Group(Root):
 
         :param nodes: The commands and groups to add.
         :raises TypeError: If a node isn't a command or a group.
-        :raises ValueError: If the group already has a command with a node's
-            name, or a node is this group or contains it.
+        :raises ValueError: If a node's name or one of its aliases is already a
+            name or alias in the group, or a node is this group or contains it.
         """
         for node in nodes:
             _check_node(self, node)
-            key = token(node.name)
-            if key in self.commands:
-                message = (
-                    f"group '{token(self.name)}' already has a command '{key}'. "
-                    "Rename one of them."
-                )
-                raise ValueError(message)
-            self.commands[key] = node
+            _check_names(self, node)
+            self.commands[token(node.name)] = node
+            for name in (node.name, *node.aliases):
+                self.names[token(name)] = node
 
 
 def command(
     name: str,
     *,
+    aliases: str | Sequence[str] = (),
     help_flags: bool | Sequence[str] = True,
     version: str | None = None,
     dependencies: Sequence[Dependency] = (),
@@ -283,6 +288,8 @@ def command(
     is, and anything else as JSON.
 
     :param name: The command's name, in snake_case.
+    :param aliases: Other names that run the command, in snake_case, such as
+        ``"ls"`` or ``["ls", "l"]``. Help lists them next to the name.
     :param help_flags: The flags that show help. ``True`` takes the enclosing
         group's, or ``-h`` and ``--help`` at the top. ``False`` or an empty list
         turns help off.
@@ -292,21 +299,23 @@ def command(
         ``[dependency.together("user", "password")]``, checked after the inputs
         are read.
     :returns: A decorator that turns a function into the command.
-    :raises TypeError: If ``name`` or ``version`` isn't a string,
-        ``help_flags`` isn't a bool or a list of strings, or ``dependencies``
-        isn't a list of dependencies.
-    :raises ValueError: If ``name`` isn't snake_case, or a help flag isn't a
-        short or long flag or is listed twice.
+    :raises TypeError: If ``name`` or ``version`` isn't a string, ``aliases``
+        isn't a string or a list of strings, ``help_flags`` isn't a bool or a
+        list of strings, or ``dependencies`` isn't a list of dependencies.
+    :raises ValueError: If ``name`` or an alias isn't snake_case, an alias is
+        the name or is listed twice, or a help flag isn't a short or long flag
+        or is listed twice.
     """
     checked = check_name(name, "command")
-    help_option = help_option_for(help_flags, "command")
-    version_option = version_option_for(version, "command")
-    checked_dependencies = dependencies_for(dependencies, "command")
+    settings = Settings(
+        check_aliases(aliases, checked, "command"),
+        help_option_for(help_flags, "command"),
+        version_option_for(version, "command"),
+        dependencies_for(dependencies, "command"),
+    )
 
     def decorate(function: Callable[..., object]) -> Command:
-        return Command(
-            checked, function, help_option, version_option, checked_dependencies
-        )
+        return Command(checked, function, settings)
 
     return decorate
 
@@ -314,6 +323,7 @@ def command(
 def group(
     name: str,
     *,
+    aliases: str | Sequence[str] = (),
     help_flags: bool | Sequence[str] = True,
     version: str | None = None,
     dependencies: Sequence[Dependency] = (),
@@ -329,6 +339,8 @@ def group(
     ``yield``, so ``try`` and ``finally`` around it work as usual.
 
     :param name: The group's name, in snake_case.
+    :param aliases: Other names that run the group, in snake_case, such as
+        ``"t"`` or ``["t", "tg"]``. Help lists them next to the name.
     :param help_flags: The flags that show help, for the group and everything
         in it that doesn't choose its own. ``True`` takes the enclosing group's,
         or ``-h`` and ``--help`` at the top. ``False`` or an empty list turns
@@ -340,21 +352,23 @@ def group(
         ``[dependency.together("user", "password")]``, checked after the inputs
         are read.
     :returns: A decorator that turns a function into the group.
-    :raises TypeError: If ``name`` or ``version`` isn't a string,
-        ``help_flags`` isn't a bool or a list of strings, or ``dependencies``
-        isn't a list of dependencies.
-    :raises ValueError: If ``name`` isn't snake_case, or a help flag isn't a
-        short or long flag or is listed twice.
+    :raises TypeError: If ``name`` or ``version`` isn't a string, ``aliases``
+        isn't a string or a list of strings, ``help_flags`` isn't a bool or a
+        list of strings, or ``dependencies`` isn't a list of dependencies.
+    :raises ValueError: If ``name`` or an alias isn't snake_case, an alias is
+        the name or is listed twice, or a help flag isn't a short or long flag
+        or is listed twice.
     """
     checked = check_name(name, "group")
-    help_option = help_option_for(help_flags, "group")
-    version_option = version_option_for(version, "group")
-    checked_dependencies = dependencies_for(dependencies, "group")
+    settings = Settings(
+        check_aliases(aliases, checked, "group"),
+        help_option_for(help_flags, "group"),
+        version_option_for(version, "group"),
+        dependencies_for(dependencies, "group"),
+    )
 
     def decorate(function: Callable[..., object]) -> Group:
-        return Group(
-            checked, function, help_option, version_option, checked_dependencies
-        )
+        return Group(checked, function, settings)
 
     return decorate
 
@@ -376,6 +390,28 @@ def _check_node(group: Group, node: object) -> None:
             "so it can't be added to it."
         )
         raise ValueError(message)
+
+
+def _check_names(group: Group, node: Root) -> None:
+    for name in (node.name, *node.aliases):
+        word = token(name)
+        other = group.names.get(word)
+        if other is not None:
+            raise ValueError(_clash(group, node, word, other))
+
+
+def _clash(group: Group, node: Root, word: str, other: Root) -> str:
+    owner = token(other.name)
+    if owner == word:
+        taken = f"already has a command '{word}'"
+        fixes = ("Rename one of them.", "Remove the alias or rename the command.")
+    else:
+        taken = f"already uses '{word}' as an alias of '{owner}'"
+        fixes = ("Rename one of them or remove the alias.", "Remove one of them.")
+    start = f"group '{token(group.name)}' {taken}"
+    if token(node.name) == word:
+        return f"{start}. {fixes[0]}"
+    return f"{start}, so it can't be an alias of '{token(node.name)}'. {fixes[1]}"
 
 
 def _contains(group: Group, node: Root) -> bool:

@@ -7,7 +7,7 @@ from typing import Literal, TextIO, cast
 
 from cliron._builtin_options import Builtins
 from cliron._conversion import shown
-from cliron._names import long_flag, placeholder
+from cliron._names import long_flag, placeholder, token
 from cliron._parents import CommandLineParent, Env, Flag, Option, Stdin
 from cliron._parsing import Input, Node, node_path
 
@@ -120,7 +120,10 @@ def help_for(nodes: Sequence[Node], builtins: Builtins) -> Help:
             "commands",
             "Commands",
             [
-                HelpRow((key,), text=first_line(command))
+                HelpRow(
+                    (key, *(token(alias) for alias in command.aliases)),
+                    text=first_line(command),
+                )
                 for key, command in node.commands.items()
             ],
         ),
