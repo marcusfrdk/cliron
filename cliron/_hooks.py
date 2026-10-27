@@ -5,6 +5,7 @@ from types import FunctionType, MethodType
 from typing import Literal
 
 from cliron._children import Child, check_below
+from cliron._fallbacks import Fallback
 from cliron._nodes import F, nodes_of, store
 from cliron._parents import Parent, call
 
@@ -127,6 +128,8 @@ def hooks_of(function: FunctionType) -> Attached:
             above, name, index = record, record.name, -1
         elif isinstance(record, Child):
             above, index = record, index + 1
+        elif isinstance(record, Fallback):
+            continue
         elif above is None:
             root.append(typing.cast("Hook", record))
         else:

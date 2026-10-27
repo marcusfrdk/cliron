@@ -44,8 +44,9 @@ Every change moves cliron toward these three goals. Ask the user before making a
 ## Architecture
 
 - A CLI is a tree of nodes. The root nodes are `group` and `command`: a group contains groups and commands, and is never called their parent.
-- A parent node provides the value of exactly one function parameter. A child node processes the value of the parent above it. A dependency relates inputs to each other, and a hook runs around a node.
-- Decorators are read top-down. A parent belongs to the root node above it, a child attaches to the nearest parent above it, and a hook attaches to the nearest node of any kind above it.
+- A parent node provides the value of exactly one function parameter. A fallback gives the parameter of the parent above it text when that parent has none. A child node processes the value of the parent above it. A dependency relates inputs to each other, and a hook runs around a node.
+- Decorators read top-down, in the order things happen, so a decorator stack reads like a description of the command. Every new decorator follows this. An order that would do something other than what it reads is an error that says where to move the decorator.
+- A parent belongs to the root node above it. A fallback belongs to the parent above it and comes before that parent's children. A child attaches to the nearest parent above it. A hook attaches to the nearest node of any kind above it, and a fallback counts as part of its parent.
 - Types and defaults live only in the function signature, never on parent nodes.
 - Classes use CapWords and functions snake_case, as PEP 8 says. Node classes are no exception.
 - Node names are snake_case. What users type is derived from them: kebab-case for commands and flags, SCREAMING_SNAKE_CASE for environment variables.

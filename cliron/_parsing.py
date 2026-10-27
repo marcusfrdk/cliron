@@ -11,8 +11,9 @@ from cliron._builtin_options import DEFAULT_BUILTINS, Builtins
 from cliron._children import AnyChild, checks_on_run, run_child
 from cliron._conversion import NUMBER, Converter, describe, fits_value
 from cliron._dependencies import Dependency, Given
+from cliron._fallbacks import Fallback
 from cliron._hooks import HookCall, first_handler
-from cliron._names import closest, long_flag, token
+from cliron._names import closest, joined, long_flag, token
 from cliron._nodes import settled
 from cliron._parents import Argument, Env, Parent, Stdin, call, flags
 
@@ -43,10 +44,19 @@ class Input:
     annotation: object = None
     handlers: tuple[HookCall, ...] = ()
     child_handlers: tuple[tuple[HookCall, ...], ...] = ()
+    fallbacks: tuple[Fallback, ...] = ()
 
     @property
     def name(self) -> str:
         return self.parent.name
+
+    @property
+    def must_be_typed(self) -> bool:
+        return self.required and not self.fallbacks
+
+    @property
+    def fallback_variables(self) -> list[str]:
+        return [label for found in self.fallbacks if (label := found.label())]
 
     @property
     def display(self) -> str:
@@ -152,6 +162,7 @@ class _Segment:
         self.builtin_flags: dict[str, str] = self.builtins.flags
         self.start: int = start
         self.raw: dict[str, list[str]] = {}
+        self.sources: dict[str, Fallback] = {}
         self.occurrences: dict[str, int] = {}
         self.words: list[tuple[int, str]] = []
         self.unknown: list[tuple[int, str]] = []
@@ -173,7 +184,7 @@ class _Segment:
             for target in self.definition.inputs
             if target.name in self.raw or self.occurrences.get(target.name, 0)
         )
-        return Given(names, self.definition.env)
+        return Given(names, self.definition.env.union(self.sources))
 
     def report(self, target: Input, error: Exception) -> None:
         self.input_errors.setdefault(target.name, []).append(error)
@@ -223,11 +234,13 @@ class _Segment:
             return target.default, await self._check_default(target)
         values: list[object] = []
         problems: list[Exception] = []
+        source = self.sources.get(target.name)
         for line, word in enumerate(raw, start=1):
             try:
                 values.append(await _value(target, converter, word, self.node))
             except ValueError as error:
-                problems.append(ValueError(f"{_label(target, line)}: {error}"))
+                label = _label(target, line, source)
+                problems.append(ValueError(f"{label}: {error}"))
         if converter.collect is not None:
             return converter.collect(values), problems
         return (values[0] if values else None), problems
@@ -268,18 +281,20 @@ class _Segment:
         except UnicodeDecodeError as error:
             message = f"{target.display}: the input isn't valid {error.encoding} text."
             return ValueError(message)
-        if text is None:
-            return None
-        if not isinstance(text, str):
-            message = (
-                f"{call(target.parent)} returned {type(text).__name__} from load(). "
-                "Make it return str or None."
-            )
-            mistake = TypeError(message)
-            mistake.add_note(location(self.node))
-            raise MistakeError(mistake)
-        self.raw[target.name] = _words(target, text)
+        if text is not None:
+            loaded = _text(text, call(target.parent), self.node, " from load()")
+            self.raw[target.name] = _words(target, loaded)
+        elif target.name not in self.raw:
+            await self._fall_back(target)
         return None
+
+    async def _fall_back(self, target: Input) -> None:
+        for found in target.fallbacks:
+            text = await settled(found.load(target.name))
+            if text is not None:
+                self.raw[target.name] = [_text(text, f"@{found!r}", self.node)]
+                self.sources[target.name] = found
+                return
 
 
 class Reader:
@@ -636,7 +651,21 @@ def _words(target: Input, text: str) -> list[str]:
     return _LINE_BREAK.split(text) if text else []
 
 
-def _label(target: Input, line: int) -> str:
+def _text(text: object, source: str, node: Node, method: str = "") -> str:
+    if isinstance(text, str):
+        return text
+    message = (
+        f"{source} returned {type(text).__name__}{method}. Make it return str or None."
+    )
+    mistake = TypeError(message)
+    mistake.add_note(location(node))
+    raise MistakeError(mistake)
+
+
+def _label(target: Input, line: int, source: Fallback | None) -> str:
+    variable = None if source is None else source.label()
+    if variable is not None:
+        return variable
     if isinstance(target.parent, Stdin) and target.multiple:
         return f"{target.display}: line {line}"
     return target.display
@@ -644,6 +673,9 @@ def _label(target: Input, line: int) -> str:
 
 def _missing(target: Input, path: str) -> str:
     message = target.parent.missing()
+    variables = target.fallback_variables
+    if variables:
+        message = f"{message} It can also come from {joined(variables, 'or')}."
     if isinstance(target.parent, Stdin):
         return f"{message} For example: cat file.txt | {path}"
     return message

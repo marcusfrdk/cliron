@@ -7,7 +7,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable, Iterable, Sequence
 from dataclasses import dataclass
 from types import FunctionType
-from typing import ClassVar, Protocol, TextIO, final
+from typing import ClassVar, TextIO, final
 
 from cliron._children import AnyChild, Child, check_below
 from cliron._names import (
@@ -139,7 +139,7 @@ class Env(Parent):
     help: str | None = None
 
     def load(self) -> str | None:
-        return os.environ.get(self.variable) or None
+        return read_variable(self.variable)
 
     def label(self) -> str:
         return f"${self.variable}"
@@ -176,8 +176,12 @@ class FunctionParent(Parent):
         return self.function(self.name)
 
 
-class ParentFactory(Protocol):
-    def __call__(self, name: str, *, help: str | None = None) -> Parent: ...
+@dataclass(frozen=True)
+class ParentFactory:
+    function: Loader
+
+    def __call__(self, name: str, *, help: str | None = None) -> Parent:
+        return FunctionParent(self.function, name, help)
 
 
 BUILT_IN_PARENTS = (Argument, Option, Flag, Env, Stdin)
@@ -241,30 +245,12 @@ def parent(function: Loader) -> ParentFactory:
     options of its own is a subclass of ``Parent``.
 
     :param function: The function, which takes the parameter's name.
-    :returns: A function that takes the name and help, and returns the parent.
+    :returns: A callable that takes the name and help, and returns the parent.
     :raises TypeError: If ``function`` isn't a function that takes the name as
         its only argument.
     """
-    if not isinstance(function, FunctionType):
-        message = (
-            "@parent must decorate a function, such as "
-            f"def git_branch(name: str) -> str | None, not {function!r}."
-        )
-        raise TypeError(message)
-    try:
-        _ = inspect.signature(function).bind("name")
-    except TypeError:
-        name = function.__name__
-        message = (
-            f"@parent function '{name}' must take the name as its only argument, "
-            f"such as def {name}(name: str) -> str | None."
-        )
-        raise TypeError(message) from None
-
-    def make(name: str, *, help: str | None = None) -> Parent:
-        return FunctionParent(function, name, help)
-
-    return make
+    _ = check_loader(function, "@parent must decorate", "@parent function")
+    return ParentFactory(function)
 
 
 def argument(
@@ -383,7 +369,7 @@ def env(
     checked = check_parameter_name(name, "env")
     return Env(
         checked,
-        check_variable(variable) or placeholder(checked),
+        check_variable(variable, "@env", "variable") or placeholder(checked),
         check_help(help, "@env"),
     )
 
@@ -403,6 +389,29 @@ def stdin(name: str, *, help: str | None = None) -> Callable[[F], F]:
     :raises ValueError: If ``name`` isn't snake_case or is a Python keyword.
     """
     return Stdin(check_parameter_name(name, "stdin"), check_help(help, "@stdin"))
+
+
+def read_variable(variable: str) -> str | None:
+    return os.environ.get(variable) or None
+
+
+def check_loader(function: object, taker: str, owner: str) -> str:
+    if not isinstance(function, FunctionType):
+        message = (
+            f"{taker} a function, such as "
+            f"def git_branch(name: str) -> str | None, not {function!r}."
+        )
+        raise TypeError(message)
+    name = function.__name__
+    try:
+        _ = inspect.signature(function).bind("name")
+    except TypeError:
+        message = (
+            f"{owner} '{name}' must take the name as its only argument, "
+            f"such as def {name}(name: str) -> str | None."
+        )
+        raise TypeError(message) from None
+    return name
 
 
 def _is_character_device(stream: TextIO) -> bool:

@@ -6,6 +6,7 @@ if TYPE_CHECKING:
     from cliron._children import Child, between, child, choices, length, matches
     from cliron._context import Context, state
     from cliron._dependencies import dependency
+    from cliron._fallbacks import fallback
     from cliron._hooks import hook, on
     from cliron._parents import Parent, argument, env, flag, option, parent, stdin
     from cliron._paths import directory, file
@@ -24,6 +25,7 @@ __all__ = [
     "dependency",
     "directory",
     "env",
+    "fallback",
     "file",
     "flag",
     "group",
@@ -51,6 +53,7 @@ _MODULES = {
     "dependency": "cliron._dependencies",
     "directory": "cliron._paths",
     "env": "cliron._parents",
+    "fallback": "cliron._fallbacks",
     "file": "cliron._paths",
     "flag": "cliron._parents",
     "group": "cliron._roots",

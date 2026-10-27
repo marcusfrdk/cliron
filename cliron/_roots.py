@@ -44,6 +44,7 @@ from cliron._conversion import (
     value_type,
 )
 from cliron._dependencies import Dependency, cycle_problem, dependencies_for
+from cliron._fallbacks import Fallback, fallbacks_of
 from cliron._help import first_line, plain, render_help, terminal_width, usage_hint
 from cliron._hooks import Attached, EventName, Hook, HookCall, first_handler, hooks_of
 from cliron._names import (
@@ -145,6 +146,7 @@ class Root:
         self.function: FunctionType = function
         self.parents: tuple[Parent, ...] = parents_of(function)
         self.children: dict[str, tuple[AnyChild, ...]] = children_of(function)
+        self.fallbacks: dict[str, tuple[Fallback, ...]] = fallbacks_of(function)
         self.attached: Attached = hooks_of(function)
         self.hooks: tuple[Hook, ...] = self.attached.root
         self.help_option: HelpOption | None = settings.help_option
@@ -225,7 +227,7 @@ class Root:
 
     def _check_parents(self) -> None:
         names: dict[str, Parent] = {}
-        typed: dict[str, Parent] = {}
+        typed: dict[str, tuple[object, str]] = {}
         for parent in self.parents:
             if isinstance(parent, Argument) and self.kind == "group":
                 message = (
@@ -246,14 +248,25 @@ class Root:
                     f"{call(other)} and {call(parent)}. Remove one."
                 )
                 raise ValueError(message)
-            for key in flags(parent) or (parent.label(),):
-                other = typed.setdefault(key, parent)
-                if other is not parent:
+            for key, owner, written in self._readers(parent):
+                other, other_written = typed.setdefault(key, (owner, written))
+                if other is not owner:
                     message = (
-                        f"{key} is used by both {call(other)} and {call(parent)}. "
+                        f"{key} is used by both {other_written} and {written}. "
                         f"{_clash_fix(key)}"
                     )
                     raise ValueError(message)
+
+    def _readers(self, parent: Parent) -> list[tuple[str, object, str]]:
+        readers: list[tuple[str, object, str]] = [
+            (key, parent, call(parent)) for key in flags(parent) or (parent.label(),)
+        ]
+        readers.extend(
+            (label, found, f"@{found!r} below {call(parent)}")
+            for found in self.fallbacks.get(parent.name, ())
+            if (label := found.label()) is not None
+        )
+        return readers
 
     def _check_dependency_names(self) -> None:
         names = [parent.name for parent in self.parents]
@@ -665,6 +678,7 @@ def _functions(node: Node) -> list[object]:
     found.extend(each.hook.callback for each in definition.hooks)
     for target in definition.inputs:
         found.append(load_function(target.parent))
+        found.extend(each.load for each in target.fallbacks)
         found.extend(child_function(each) for each in target.children)
         found.extend(each.hook.callback for each in target.handlers)
         found.extend(
@@ -973,6 +987,7 @@ def _definition(root: Root) -> Definition:
                 parameters.get(parent.name),
                 hints,
                 root.children.get(parent.name, ()),
+                root.fallbacks.get(parent.name, ()),
             ),
         )
         for parent in root.parents
@@ -1163,6 +1178,7 @@ def _input(
     parameter: inspect.Parameter | None,
     hints: dict[str, object],
     children: tuple[AnyChild, ...],
+    fallbacks: tuple[Fallback, ...],
 ) -> Input:
     if parameter is None:
         message = (
@@ -1203,17 +1219,30 @@ def _input(
             "with a child that takes str."
         )
         raise TypeError(message)
-    if not isinstance(parent, CommandLineParent | Stdin) and converter.collect:
-        message = (
-            f"parameter '{parent.name}' has the type {describe(annotation)}, "
-            f"but {call(parent)} reads one value. Use a type without list or tuple."
-        )
-        raise TypeError(message)
+    if converter.collect:
+        _check_one_value(parent, fallbacks, annotation)
     required = default is inspect.Parameter.empty
     target = Input(
-        parent, converter, default=None if required else default, required=required
+        parent,
+        converter,
+        default=None if required else default,
+        required=required,
+        fallbacks=fallbacks,
     )
     return _checked(target, annotation, children, converting=converting)
+
+
+def _check_one_value(
+    parent: Parent, fallbacks: tuple[Fallback, ...], annotation: object
+) -> None:
+    readers = [] if isinstance(parent, CommandLineParent | Stdin) else [call(parent)]
+    readers.extend(f"@{found!r}" for found in fallbacks)
+    if readers:
+        message = (
+            f"parameter '{parent.name}' has the type {describe(annotation)}, "
+            f"but {readers[0]} reads one value. Use a type without list or tuple."
+        )
+        raise TypeError(message)
 
 
 def _checked(
@@ -1350,13 +1379,14 @@ def _check_arguments(arguments: tuple[Input, ...]) -> None:
                 "Move its @argument below the others."
             )
             raise TypeError(message)
-        if target.required and optional is not None:
+        if target.must_be_typed and optional is not None:
+            which = "a fallback" if optional.required else "one"
             message = (
                 f"argument '{target.name}' has no default, so it can't come after "
-                f"argument '{optional.name}', which has one. "
+                f"argument '{optional.name}', which has {which}. "
                 f"Give '{target.name}' a default, or move its @argument above "
                 f"'{optional.name}'."
             )
             raise TypeError(message)
-        if not target.required:
+        if not target.must_be_typed:
             optional = target

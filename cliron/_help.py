@@ -196,7 +196,7 @@ def _usage(nodes: Sequence[Node]) -> tuple[str, ...]:
         words.append("COMMAND")
     for target in node.definition().arguments:
         name = _placeholder(target)
-        words.append(name if target.required else f"[{name}]")
+        words.append(name if target.must_be_typed else f"[{name}]")
     return tuple(words)
 
 
@@ -237,7 +237,11 @@ def _option_row(target: Input) -> HelpRow:
 
 
 def _row(names: tuple[str, ...], value: str | None, target: Input) -> HelpRow:
-    notes = [sentence for child in target.children if (sentence := child.describe())]
+    variables = target.fallback_variables
+    notes = [f"Falls back to {', then '.join(variables)}."] if variables else []
+    notes.extend(
+        sentence for child in target.children if (sentence := child.describe())
+    )
     if target.multiple or target.counted:
         piped = isinstance(target.parent, Stdin)
         notes.append("One per line." if piped else "Repeatable.")

@@ -47,9 +47,9 @@ class Child(ABC, Generic[In_contra, Out_co]):
     A node that checks or changes the value of the parent above it.
 
     Subclass it with the types it takes and returns, such as
-    ``Child[int, int]``, implement ``process``, and put an instance right
-    below the parent: ``@Even()``. A first child that takes ``str`` gets the
-    text from the command line, so it can convert it.
+    ``Child[int, int]``, implement ``process``, and put an instance below
+    the parent: ``@Even()``. A first child that takes ``str`` gets the text,
+    so it can convert it.
 
     :cvar default_check: When cliron runs the child on the parameter's
         default: ``"definition"`` checks it once, with the CLI's definition, and
@@ -68,8 +68,8 @@ class Child(ABC, Generic[In_contra, Out_co]):
         async is checked on each run that uses it, as with
         ``default_check = "run"``.
 
-        :param value: The parent's value, or the text from the command line
-            for a first child that takes ``str``.
+        :param value: The parent's value, or its text for a first child that
+            takes ``str``.
         :returns: The value passed on to the next child or the function.
         :raises ValueError: If the value isn't valid, with a message that says
             why, such as ``"3 isn't even."``.
@@ -283,7 +283,7 @@ def child(function: Callable[Concatenate[T, P], R]) -> Callable[P, Child[T, R]]:
 
     The function takes the value first, and its other parameters become the
     child's options: ``def slug(value: str, separator: str = "-") -> str`` is
-    used as ``@slug()`` or ``@slug(separator="_")`` right below a parent. It
+    used as ``@slug()`` or ``@slug(separator="_")`` below a parent. It
     returns the value passed on, or raises ``ValueError`` with a message that
     says why the value isn't valid.
 
@@ -341,8 +341,7 @@ def between(
 
     :param low: The smallest value allowed.
     :param high: The largest value allowed.
-    :returns: A decorator that goes right below the parent whose value it
-        checks.
+    :returns: A decorator that goes below the parent whose value it checks.
     :raises TypeError: If a bound isn't a number, date or time, the bounds are
         of different kinds, or neither bound is given.
     :raises ValueError: If ``low`` is above ``high``.
@@ -374,8 +373,7 @@ def length(low: int | None = None, high: int | None = None) -> Callable[[F], F]:
 
     :param low: The fewest characters allowed, 1 or more.
     :param high: The most characters allowed, 1 or more.
-    :returns: A decorator that goes right below the parent whose text it
-        checks.
+    :returns: A decorator that goes below the parent whose text it checks.
     :raises TypeError: If a bound isn't a whole number, or neither bound is
         given.
     :raises ValueError: If a bound is below 1, or ``low`` is above ``high``.
@@ -395,8 +393,7 @@ def matches(pattern: str) -> Callable[[F], F]:
     Check that the whole text above matches a regular expression.
 
     :param pattern: The regular expression, such as ``r"[a-z0-9-]+"``.
-    :returns: A decorator that goes right below the parent whose text it
-        checks.
+    :returns: A decorator that goes below the parent whose text it checks.
     :raises TypeError: If ``pattern`` isn't a string.
     :raises ValueError: If ``pattern`` isn't a valid regular expression.
     """
@@ -419,8 +416,7 @@ def choices(*values: object) -> Callable[[F], F]:
     ``choices`` to allow only some of its members.
 
     :param values: The values allowed, of the parameter's type.
-    :returns: A decorator that goes right below the parent whose value it
-        checks.
+    :returns: A decorator that goes below the parent whose value it checks.
     :raises TypeError: If no values are given, a range or an Enum is given
         where values belong, or a collection is mixed with values.
     :raises ValueError: If a value is given twice.

@@ -2,6 +2,8 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Literal, final
 
+from cliron._names import joined
+
 Label = Callable[[str], str]
 CountKind = Literal["at_least", "at_most", "exactly"]
 
@@ -365,7 +367,7 @@ def check_combinations(
     label = labels.__getitem__
     for names, related in _groups(dependencies, env):
         valid = [given for given in _combinations(names, env) if _meets(related, given)]
-        calls = _join([found.call for found in related], "and")
+        calls = joined([found.call for found in related], "and")
         if not valid:
             message = (
                 f"these dependencies can never all be met: {calls}. Change one of them."
@@ -393,7 +395,7 @@ def _check_redundancy(
             given for given in _combinations(names, env) if _meets(others, given)
         ]
         if without == valid:
-            implied_by = _join([other.call for other in others], "and")
+            implied_by = joined([other.call for other in others], "and")
             message = f"{found.call} is already implied by {implied_by}. Remove it."
             raise ValueError(message)
 
@@ -515,14 +517,8 @@ def _call(method: str, names: Sequence[str], count: int | None = None) -> str:
 
 
 def _and(label: Label, names: Sequence[str]) -> str:
-    return _join([label(name) for name in names], "and")
+    return joined([label(name) for name in names], "and")
 
 
 def _or(label: Label, names: Sequence[str]) -> str:
-    return _join([label(name) for name in names], "or")
-
-
-def _join(words: Sequence[str], word: str) -> str:
-    if len(words) == 1:
-        return words[0]
-    return f"{', '.join(words[:-1])} {word} {words[-1]}"
+    return joined([label(name) for name in names], "or")

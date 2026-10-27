@@ -58,8 +58,7 @@ def file(*, exists: bool | None = True) -> Child[Path, Path]:
 
     :param exists: ``True`` if the file must exist, ``False`` if nothing may be
         there yet, or ``None`` if either is fine.
-    :returns: A decorator that goes right below the parent whose path it
-        checks.
+    :returns: A decorator that goes below the parent whose path it checks.
     :raises TypeError: If ``exists`` isn't ``True``, ``False`` or ``None``.
     """
     return _path_check("file", exists)
@@ -74,8 +73,7 @@ def directory(*, exists: bool | None = True) -> Child[Path, Path]:
 
     :param exists: ``True`` if the directory must exist, ``False`` if nothing
         may be there yet, or ``None`` if either is fine.
-    :returns: A decorator that goes right below the parent whose path it
-        checks.
+    :returns: A decorator that goes below the parent whose path it checks.
     :raises TypeError: If ``exists`` isn't ``True``, ``False`` or ``None``.
     """
     return _path_check("directory", exists)

@@ -111,11 +111,11 @@ def check_flag(flag: object, context: str) -> str:
     raise ValueError(message)
 
 
-def check_variable(variable: object) -> str | None:
+def check_variable(variable: object, decorator: str, keyword: str) -> str | None:
     if variable is not None and not isinstance(variable, str):
         message = (
-            "@env takes variable as a string, such as "
-            f'variable="GITHUB_TOKEN", not {variable!r}.'
+            f"{decorator} takes {keyword} as a string, such as "
+            f'{keyword}="GITHUB_TOKEN", not {variable!r}.'
         )
         raise TypeError(message)
     if variable is None or _VARIABLE.fullmatch(variable):
@@ -144,6 +144,12 @@ def long_flag(name: str) -> str:
 
 def placeholder(name: str) -> str:
     return name.removesuffix("_").upper()
+
+
+def joined(words: Sequence[str], word: str) -> str:
+    if len(words) == 1:
+        return words[0]
+    return f"{', '.join(words[:-1])} {word} {words[-1]}"
 
 
 def _text(name: object, decorator: str) -> str:
