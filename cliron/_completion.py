@@ -505,6 +505,8 @@ def _records(root: Node) -> list[str]:
                 _record("O", index, "flag", 1, shown, "Show this help and exit.")
             )
         for name, entry in node.commands.items():
+            if not entry.is_enabled():
+                continue
             words = (name, *(token(alias) for alias in entry.aliases))
             records.extend(
                 _record("C", index, count, word, entry.summary()) for word in words
@@ -545,7 +547,11 @@ def _values(target: Input, path: str) -> tuple[str, tuple[str, ...]]:
 def suggester(root: Node, path: str, name: str) -> Suggest:
     node = root
     for word in path.split():
-        node = node.commands[word].load()
+        entry = node.commands[word]
+        if not entry.is_enabled():
+            message = f"{word!r} is disabled."
+            raise LookupError(message)
+        node = entry.load()
     parents = {target.name: target.parent for target in node.definition().inputs}
     completions = _completions(parents[name])
     if not callable(completions):

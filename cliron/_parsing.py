@@ -112,6 +112,8 @@ class Entry(Protocol):
 
     def summary(self) -> str: ...
 
+    def is_enabled(self) -> bool: ...
+
 
 class Node(Entry, Protocol):
     kind: ClassVar[str]
@@ -149,6 +151,10 @@ class Parsed:
 
 def node_path(nodes: Iterable[Node]) -> str:
     return " ".join(token(node.name) for node in nodes)
+
+
+def disabled(path: str) -> str:
+    return f"'{path}' is disabled."
 
 
 class _Segment:
@@ -371,8 +377,16 @@ class Reader:
         self.position += 1
         command = names.get(word)
         if command is None:
-            message = f"{word!r} isn't a {path} command.{_suggestion(word, names)}"
+            enabled = [
+                each for each in segment.node.commands.values() if each.is_enabled()
+            ]
+            shown = [name for name, entry in names.items() if entry in enabled]
+            message = f"{word!r} isn't a {path} command.{_suggestion(word, shown)}"
             segment.word_errors.append((start, ValueError(message)))
+            return None
+        if not command.is_enabled():
+            error = ValueError(disabled(f"{path} {token(command.name)}"))
+            segment.word_errors.append((start, error))
             return None
         return command.load()
 

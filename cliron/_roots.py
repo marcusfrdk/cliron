@@ -79,7 +79,9 @@ from cliron._parsing import (
     Node,
     Reader,
     Request,
+    disabled,
     location,
+    node_path,
 )
 from cliron._signals import finish, run_in_loop
 
@@ -99,12 +101,16 @@ _UNSUPPORTED_KINDS = {
 }
 
 
+Enabled = Callable[[], bool]
+
+
 @dataclass(frozen=True)
 class Settings:
     aliases: tuple[str, ...]
     help_option: HelpOption | None
     version_option: VersionOption | None
     dependencies: tuple[Dependency, ...]
+    enabled: Enabled | None
 
 
 class Root:
@@ -152,6 +158,7 @@ class Root:
         self.help_option: HelpOption | None = settings.help_option
         self.version_option: VersionOption | None = settings.version_option
         self.dependencies: tuple[Dependency, ...] = settings.dependencies
+        self.enabled: Enabled | None = settings.enabled
         self.commands: dict[str, Command | Group | Lazy] = {}
         self.names: dict[str, Command | Group | Lazy] = {}
         self._definition: Definition | None = None
@@ -202,6 +209,15 @@ class Root:
         :returns: The first line of the function's docstring.
         """
         return first_line(self)
+
+    def is_enabled(self) -> bool:
+        """
+        Call the ``enabled`` function, if there is one.
+
+        :returns: Whether the node can be used and is shown.
+        :raises MistakeError: If the function doesn't return a bool.
+        """
+        return _enabled(self.enabled, self)
 
     def builtins(self, inherited: Builtins) -> Builtins:
         """
@@ -313,6 +329,7 @@ class Group(Root):
         *,
         aliases: str | Sequence[str] = (),
         help: str | None = None,
+        enabled: Enabled | None = None,
     ) -> None:
         """
         Add a command or group that is imported only when it's needed.
@@ -321,15 +338,18 @@ class Group(Root):
         module, and everything it imports, is imported when the command line
         runs it or shows its help, by ``validate``, and when the completion
         script is made. Until then, the group's help shows ``help`` for it. Once
-        imported, its name and aliases must be the ones given here.
+        imported, its name, aliases and ``enabled`` must be the ones given here.
 
         :param name: Its name, in snake_case.
         :param target: Where it is, such as ``"notes.archive:archive"``.
         :param aliases: Other names that run it, in snake_case, such as ``"ar"``
             or ``["ar", "old"]``.
         :param help: The line the group's help shows for it.
+        :param enabled: A function without arguments that says whether it can
+            be used, checked without importing it, as for ``@command``.
         :raises TypeError: If ``name``, ``target`` or ``help`` isn't a string,
-            or ``aliases`` isn't a string or a list of strings.
+            ``aliases`` isn't a string or a list of strings, or ``enabled``
+            isn't a plain function that takes no arguments.
         :raises ValueError: If ``name`` or an alias isn't snake_case, an alias is
             the name or is listed twice, ``target`` isn't ``"module:attribute"``,
             or the name or an alias is already a name or alias in the group.
@@ -339,8 +359,9 @@ class Group(Root):
             self,
             checked,
             _check_target(target),
-            check_aliases(aliases, checked, "lazy()", "command"),
-            check_help(help, "lazy()"),
+            aliases=check_aliases(aliases, checked, "lazy()", "command"),
+            help=check_help(help, "lazy()"),
+            enabled=_check_enabled(enabled, "lazy()"),
         )
         self._register(entry)
 
@@ -359,8 +380,10 @@ class Lazy:
         group: Group,
         name: str,
         target: str,
+        *,
         aliases: tuple[str, ...],
         help: str | None,
+        enabled: Enabled | None,
     ) -> None:
         """
         Remember where the command or group is, without importing it.
@@ -370,12 +393,14 @@ class Lazy:
         :param target: Where it is, as ``"module:attribute"``.
         :param aliases: Its other names, in snake_case.
         :param help: The line the group's help shows for it.
+        :param enabled: The function that says whether it can be used.
         """
         self.group: Group = group
         self.name: str = name
         self.target: str = target
         self.aliases: tuple[str, ...] = aliases
         self.help: str | None = help
+        self.enabled: Enabled | None = enabled
         self.node: Command | Group | None = None
 
     def load(self) -> "Command | Group":
@@ -404,6 +429,15 @@ class Lazy:
         """
         return plain(self.help or "")
 
+    def is_enabled(self) -> bool:
+        """
+        Call the ``enabled`` function, if there is one, without importing.
+
+        :returns: Whether the command or group can be used and is shown.
+        :raises MistakeError: If the function doesn't return a bool.
+        """
+        return _enabled(self.enabled, self.group)
+
 
 def command(
     name: str,
@@ -412,6 +446,7 @@ def command(
     help_flags: bool | Sequence[str] = True,
     version: str | None = None,
     dependencies: Sequence[Dependency] = (),
+    enabled: Enabled | None = None,
 ) -> Callable[[Callable[..., object]], Command]:
     """
     Turn a function into a command.
@@ -433,10 +468,15 @@ def command(
     :param dependencies: Dependencies between the inputs, such as
         ``[dependency.together("user", "password")]``, checked after the inputs
         are read.
+    :param enabled: A function without arguments that says whether the command
+        can be used, such as one that checks the user's role. When it returns
+        ``False``, help, completion and suggestions leave the command out, and
+        running it is an error. ``None`` means always.
     :returns: A decorator that turns a function into the command.
     :raises TypeError: If ``name`` or ``version`` isn't a string, ``aliases``
         isn't a string or a list of strings, ``help_flags`` isn't a bool or a
-        list of strings, or ``dependencies`` isn't a list of dependencies.
+        list of strings, ``dependencies`` isn't a list of dependencies, or
+        ``enabled`` isn't a plain function that takes no arguments.
     :raises ValueError: If ``name`` or an alias isn't snake_case, an alias is
         the name or is listed twice, or a help flag isn't a short or long flag
         or is listed twice.
@@ -447,6 +487,7 @@ def command(
         help_option_for(help_flags, "command"),
         version_option_for(version, "command"),
         dependencies_for(dependencies, "command"),
+        _check_enabled(enabled, "@command"),
     )
 
     def decorate(function: Callable[..., object]) -> Command:
@@ -462,6 +503,7 @@ def group(
     help_flags: bool | Sequence[str] = True,
     version: str | None = None,
     dependencies: Sequence[Dependency] = (),
+    enabled: Enabled | None = None,
 ) -> Callable[[Callable[..., object]], Group]:
     """
     Turn a function into a group of commands.
@@ -486,10 +528,16 @@ def group(
     :param dependencies: Dependencies between the group's own inputs, such as
         ``[dependency.together("user", "password")]``, checked after the inputs
         are read.
+    :param enabled: A function without arguments that says whether the group
+        and everything in it can be used, such as one that checks the user's
+        role. When it returns ``False``, help, completion and suggestions leave
+        the group out, and running anything in it is an error. ``None`` means
+        always.
     :returns: A decorator that turns a function into the group.
     :raises TypeError: If ``name`` or ``version`` isn't a string, ``aliases``
         isn't a string or a list of strings, ``help_flags`` isn't a bool or a
-        list of strings, or ``dependencies`` isn't a list of dependencies.
+        list of strings, ``dependencies`` isn't a list of dependencies, or
+        ``enabled`` isn't a plain function that takes no arguments.
     :raises ValueError: If ``name`` or an alias isn't snake_case, an alias is
         the name or is listed twice, or a help flag isn't a short or long flag
         or is listed twice.
@@ -500,6 +548,7 @@ def group(
         help_option_for(help_flags, "group"),
         version_option_for(version, "group"),
         dependencies_for(dependencies, "group"),
+        _check_enabled(enabled, "@group"),
     )
 
     def decorate(function: Callable[..., object]) -> Group:
@@ -615,7 +664,61 @@ def _loaded(lazy: Lazy, found: object) -> "Command | Group":
             "Give both the same aliases."
         )
         raise ValueError(message)
+    if found.enabled is not lazy.enabled:
+        message = (
+            f"{shown} has enabled={_enabled_name(lazy.enabled)}, but the "
+            f"{found.kind} it loads has enabled={_enabled_name(found.enabled)}. "
+            "Give both the same function."
+        )
+        raise ValueError(message)
     return found
+
+
+def _check_enabled(enabled: object, caller: str) -> Enabled | None:
+    if enabled is None:
+        return None
+    if not callable(enabled):
+        message = (
+            f"{caller} takes enabled as a function, such as "
+            f"def is_admin() -> bool, not {enabled!r}."
+        )
+        raise TypeError(message)
+    name = _enabled_name(enabled)
+    if is_async(enabled):
+        message = (
+            f"enabled function '{name}' is async def, but help and completion "
+            "can't wait for it. Make it a plain function."
+        )
+        raise TypeError(message)
+    try:
+        _ = inspect.signature(enabled).bind()
+    except TypeError:
+        message = (
+            f"enabled function '{name}' must take no arguments. "
+            f'Wrap it, such as lambda: {name}("admin").'
+        )
+        raise TypeError(message) from None
+    return typing.cast("Enabled", enabled)
+
+
+def _enabled(function: Enabled | None, node: Node) -> bool:
+    if function is None:
+        return True
+    result = typing.cast("Callable[[], object]", function)()
+    if isinstance(result, bool):
+        return result
+    message = (
+        f"enabled function '{_enabled_name(function)}' returned {result!r}. "
+        "Make it return True or False."
+    )
+    mistake = TypeError(message)
+    mistake.add_note(location(node))
+    raise MistakeError(mistake)
+
+
+def _enabled_name(function: object) -> str:
+    name: object = getattr(function, "__name__", None)
+    return name if isinstance(name, str) else repr(function)
 
 
 def _listed(aliases: tuple[str, ...]) -> str:
@@ -640,6 +743,9 @@ def _main_or_mistake(root: Root, args: list[str]) -> int:
 
 
 def main(root: Node, args: list[str]) -> int:
+    if not root.is_enabled():
+        _ = sys.stderr.write(f"error: {disabled(node_path([root]))}\n")
+        return 2
     reader = Reader(args)
     request = reader.read(root)
     if request is not None:

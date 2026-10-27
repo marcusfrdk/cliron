@@ -125,6 +125,7 @@ def help_for(nodes: Sequence[Node], builtins: Builtins) -> Help:
                     text=command.summary(),
                 )
                 for key, command in node.commands.items()
+                if command.is_enabled()
             ],
         ),
     ]
