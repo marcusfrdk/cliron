@@ -1,6 +1,6 @@
 from cliron._builtin_options import DEFAULT_BUILTINS, Builtins
 from cliron._dependencies import check_combinations
-from cliron._parsing import location
+from cliron._parsing import MistakeError, location
 from cliron._roots import Command, Group
 
 
@@ -14,10 +14,15 @@ def validate(cli: Command | Group) -> None:
     :raises TypeError: If a function, parameter or annotation doesn't fit its
         decorators.
     :raises ValueError: If a default doesn't fit its decorator, a flag is used
-        twice, or dependencies name an input without a default, require each
-        other in a cycle, contradict each other or repeat each other.
+        twice, dependencies name an input without a default, require each other
+        in a cycle, contradict each other or repeat each other, or a lazy
+        command's name or aliases differ from the ones it was added with.
+    :raises ImportError: If a lazy command's module or attribute doesn't exist.
     """
-    _validate(cli, DEFAULT_BUILTINS)
+    try:
+        _validate(cli, DEFAULT_BUILTINS)
+    except MistakeError as mistake:
+        raise mistake.error from None
 
 
 def _validate(cli: Command | Group, inherited: Builtins) -> None:
@@ -29,4 +34,4 @@ def _validate(cli: Command | Group, inherited: Builtins) -> None:
         error.add_note(location(cli))
         raise
     for child in cli.commands.values():
-        _validate(child, builtins)
+        _validate(child.load(), builtins)

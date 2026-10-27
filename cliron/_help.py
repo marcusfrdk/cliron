@@ -122,7 +122,7 @@ def help_for(nodes: Sequence[Node], builtins: Builtins) -> Help:
             [
                 HelpRow(
                     (key, *(token(alias) for alias in command.aliases)),
-                    text=first_line(command),
+                    text=command.summary(),
                 )
                 for key, command in node.commands.items()
             ],

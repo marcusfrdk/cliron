@@ -4,7 +4,7 @@ from pathlib import PurePath
 
 from cliron._builtin_options import DEFAULT_BUILTINS, Builtins
 from cliron._conversion import value_type
-from cliron._help import first_line, plain
+from cliron._help import plain
 from cliron._names import token
 from cliron._parents import Argument, Flag, Option, Parent, Suggest, flags
 from cliron._parsing import Input, Node
@@ -504,11 +504,12 @@ def _records(root: Node) -> list[str]:
             records.append(
                 _record("O", index, "flag", 1, shown, "Show this help and exit.")
             )
-        for name, child in node.commands.items():
-            words = (name, *(token(alias) for alias in child.aliases))
+        for name, entry in node.commands.items():
+            words = (name, *(token(alias) for alias in entry.aliases))
             records.extend(
-                _record("C", index, count, word, first_line(child)) for word in words
+                _record("C", index, count, word, entry.summary()) for word in words
             )
+            child = entry.load()
             pending.append((child, builtins, count, f"{path} {name}".lstrip()))
             count += 1
     return records
@@ -544,7 +545,7 @@ def _values(target: Input, path: str) -> tuple[str, tuple[str, ...]]:
 def suggester(root: Node, path: str, name: str) -> Suggest:
     node = root
     for word in path.split():
-        node = node.commands[word]
+        node = node.commands[word].load()
     parents = {target.name: target.parent for target in node.definition().inputs}
     completions = _completions(parents[name])
     if not callable(completions):

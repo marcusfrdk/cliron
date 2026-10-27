@@ -13,7 +13,7 @@ from collections.abc import (
 from dataclasses import dataclass, replace
 from pathlib import Path
 from types import FunctionType, MappingProxyType, NoneType
-from typing import ClassVar, NoReturn
+from typing import ClassVar, NoReturn, Self
 
 from cliron._builtin_options import (
     Builtins,
@@ -44,10 +44,11 @@ from cliron._conversion import (
     value_type,
 )
 from cliron._dependencies import Dependency, cycle_problem, dependencies_for
-from cliron._help import render_help, terminal_width, usage_hint
+from cliron._help import first_line, plain, render_help, terminal_width, usage_hint
 from cliron._hooks import Attached, EventName, Hook, HookCall, first_handler, hooks_of
 from cliron._names import (
     check_aliases,
+    check_help,
     check_name,
     closest,
     is_parameter_name,
@@ -149,8 +150,8 @@ class Root:
         self.help_option: HelpOption | None = settings.help_option
         self.version_option: VersionOption | None = settings.version_option
         self.dependencies: tuple[Dependency, ...] = settings.dependencies
-        self.commands: dict[str, Command | Group] = {}
-        self.names: dict[str, Command | Group] = {}
+        self.commands: dict[str, Command | Group | Lazy] = {}
+        self.names: dict[str, Command | Group | Lazy] = {}
         self._definition: Definition | None = None
         self._check_parents()
         self._check_dependency_names()
@@ -183,6 +184,22 @@ class Root:
         if self._definition is None:
             self._definition = _define(self)
         return self._definition
+
+    def load(self) -> Self:
+        """
+        Return this node, which a lazy entry in a group would import first.
+
+        :returns: This command or group.
+        """
+        return self
+
+    def summary(self) -> str:
+        """
+        Return the line that a group's help shows for this node.
+
+        :returns: The first line of the function's docstring.
+        """
+        return first_line(self)
 
     def builtins(self, inherited: Builtins) -> Builtins:
         """
@@ -274,10 +291,105 @@ class Group(Root):
         """
         for node in nodes:
             _check_node(self, node)
-            _check_names(self, node)
-            self.commands[token(node.name)] = node
-            for name in (node.name, *node.aliases):
-                self.names[token(name)] = node
+            self._register(node)
+
+    def lazy(
+        self,
+        name: str,
+        target: str,
+        *,
+        aliases: str | Sequence[str] = (),
+        help: str | None = None,
+    ) -> None:
+        """
+        Add a command or group that is imported only when it's needed.
+
+        ``target`` names it as ``"module:attribute"``, like an entry point. The
+        module, and everything it imports, is imported when the command line
+        runs it or shows its help, by ``validate``, and when the completion
+        script is made. Until then, the group's help shows ``help`` for it. Once
+        imported, its name and aliases must be the ones given here.
+
+        :param name: Its name, in snake_case.
+        :param target: Where it is, such as ``"notes.archive:archive"``.
+        :param aliases: Other names that run it, in snake_case, such as ``"ar"``
+            or ``["ar", "old"]``.
+        :param help: The line the group's help shows for it.
+        :raises TypeError: If ``name``, ``target`` or ``help`` isn't a string,
+            or ``aliases`` isn't a string or a list of strings.
+        :raises ValueError: If ``name`` or an alias isn't snake_case, an alias is
+            the name or is listed twice, ``target`` isn't ``"module:attribute"``,
+            or the name or an alias is already a name or alias in the group.
+        """
+        checked = _lazy_name(name)
+        entry = Lazy(
+            self,
+            checked,
+            _check_target(target),
+            check_aliases(aliases, checked, "lazy()", "command"),
+            check_help(help, "lazy()"),
+        )
+        self._register(entry)
+
+    def _register(self, entry: "Command | Group | Lazy") -> None:
+        _check_names(self, entry)
+        self.commands[token(entry.name)] = entry
+        for name in (entry.name, *entry.aliases):
+            self.names[token(name)] = entry
+
+
+class Lazy:
+    """A command or group in a group that is imported when it's needed."""
+
+    def __init__(
+        self,
+        group: Group,
+        name: str,
+        target: str,
+        aliases: tuple[str, ...],
+        help: str | None,
+    ) -> None:
+        """
+        Remember where the command or group is, without importing it.
+
+        :param group: The group it's in.
+        :param name: Its name, in snake_case.
+        :param target: Where it is, as ``"module:attribute"``.
+        :param aliases: Its other names, in snake_case.
+        :param help: The line the group's help shows for it.
+        """
+        self.group: Group = group
+        self.name: str = name
+        self.target: str = target
+        self.aliases: tuple[str, ...] = aliases
+        self.help: str | None = help
+        self.node: Command | Group | None = None
+
+    def load(self) -> "Command | Group":
+        """
+        Import the command or group, once, and check that it fits.
+
+        :returns: The command or group.
+        :raises MistakeError: If its module or attribute doesn't exist, it isn't
+            a command or group, or its name or aliases differ.
+        """
+        if self.node is None:
+            found = _import(self)
+            try:
+                node = _loaded(self, found)
+                _check_node(self.group, node)
+            except (TypeError, ValueError) as error:
+                raise MistakeError(error) from None
+            self.node = node
+        return self.node
+
+    def summary(self) -> str:
+        """
+        Return the line that the group's help shows, without importing.
+
+        :returns: The ``help`` text.
+        """
+        return plain(self.help or "")
 
 
 def command(
@@ -318,7 +430,7 @@ def command(
     """
     checked = check_name(name, "command")
     settings = Settings(
-        check_aliases(aliases, checked, "command"),
+        check_aliases(aliases, checked, "@command", "command"),
         help_option_for(help_flags, "command"),
         version_option_for(version, "command"),
         dependencies_for(dependencies, "command"),
@@ -371,7 +483,7 @@ def group(
     """
     checked = check_name(name, "group")
     settings = Settings(
-        check_aliases(aliases, checked, "group"),
+        check_aliases(aliases, checked, "@group", "group"),
         help_option_for(help_flags, "group"),
         version_option_for(version, "group"),
         dependencies_for(dependencies, "group"),
@@ -402,7 +514,7 @@ def _check_node(group: Group, node: object) -> None:
         raise ValueError(message)
 
 
-def _check_names(group: Group, node: Root) -> None:
+def _check_names(group: Group, node: Root | Lazy) -> None:
     for name in (node.name, *node.aliases):
         word = token(name)
         other = group.names.get(word)
@@ -410,7 +522,7 @@ def _check_names(group: Group, node: Root) -> None:
             raise ValueError(_clash(group, node, word, other))
 
 
-def _clash(group: Group, node: Root, word: str, other: Root) -> str:
+def _clash(group: Group, node: Root | Lazy, word: str, other: Root | Lazy) -> str:
     owner = token(other.name)
     if owner == word:
         taken = f"already has a command '{word}'"
@@ -422,6 +534,79 @@ def _clash(group: Group, node: Root, word: str, other: Root) -> str:
     if token(node.name) == word:
         return f"{start}. {fixes[0]}"
     return f"{start}, so it can't be an alias of '{token(node.name)}'. {fixes[1]}"
+
+
+def _lazy_name(name: object) -> str:
+    if isinstance(name, str):
+        return check_name(name, "lazy")
+    message = f"lazy() takes the name as a string, such as 'archive', not {name!r}."
+    raise TypeError(message)
+
+
+def _check_target(target: object) -> str:
+    if not isinstance(target, str):
+        message = (
+            "lazy() takes the target as a string, such as 'notes.archive:archive', "
+            f"not {target!r}."
+        )
+        raise TypeError(message)
+    module, separator, attribute = target.partition(":")
+    parts = [*module.split("."), attribute]
+    if separator and all(part.isidentifier() for part in parts):
+        return target
+    message = (
+        "lazy() takes the target as 'module:attribute', such as "
+        f"'notes.archive:archive', not {target!r}."
+    )
+    raise ValueError(message)
+
+
+def _import(lazy: Lazy) -> object:
+    import importlib
+
+    module, _, attribute = lazy.target.partition(":")
+    try:
+        found = importlib.import_module(module)
+    except ModuleNotFoundError as error:
+        if not f"{module}.".startswith(f"{error.name}."):
+            raise
+        raise _not_loaded(lazy, str(error)) from None
+    if not hasattr(found, attribute):
+        raise _not_loaded(lazy, f"module '{module}' has no attribute '{attribute}'")
+    return typing.cast("object", getattr(found, attribute))
+
+
+def _not_loaded(lazy: Lazy, reason: str) -> MistakeError:
+    message = f"lazy command '{token(lazy.name)}' can't load '{lazy.target}': {reason}."
+    return MistakeError(ImportError(message))
+
+
+def _loaded(lazy: Lazy, found: object) -> "Command | Group":
+    shown = f"lazy command '{token(lazy.name)}'"
+    if not isinstance(found, Command | Group):
+        message = (
+            f"{shown} loaded {found!r} from '{lazy.target}', which isn't a command "
+            "or group. Point it at a function decorated with @command or @group."
+        )
+        raise TypeError(message)
+    if found.name != lazy.name:
+        message = (
+            f"{shown} loaded {found.kind} '{token(found.name)}' from "
+            f"'{lazy.target}'. Give both the same name."
+        )
+        raise ValueError(message)
+    if found.aliases != lazy.aliases:
+        message = (
+            f"{shown} has the aliases {_listed(lazy.aliases)}, but the "
+            f"{found.kind} it loads has {_listed(found.aliases)}. "
+            "Give both the same aliases."
+        )
+        raise ValueError(message)
+    return found
+
+
+def _listed(aliases: tuple[str, ...]) -> str:
+    return repr([token(alias) for alias in aliases])
 
 
 def _contains(group: Group, node: Root) -> bool:

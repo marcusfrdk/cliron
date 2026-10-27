@@ -40,6 +40,7 @@
 - Every CLI prints a shell completion script for bash, zsh or fish with a hidden `--completion SHELL`, completing commands, options, choices and paths without starting Python on Tab.
 - The `aliases` parameter of `command` and `group` takes one name or a list of names that run it too, such as `@command("list", aliases="ls")`, and help and shell completion show them with the name.
 - The `completions` parameter of `argument` and `option` sets what shell completion offers: a list of values, or a function that takes the text typed so far and runs when Tab is pressed, such as one that reads names from a database.
+- A group's `lazy` method adds a command or group by its `"module:attribute"` and imports that module only when the command runs or shows its help, or the completion script or `validate` needs it, so slow imports don't slow down the rest of the CLI.
 
 ### Changed
 

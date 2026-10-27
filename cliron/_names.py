@@ -16,31 +16,40 @@ def check_name(name: object, decorator: str) -> str:
     raise ValueError(_not_snake_case(text, snake_case(text)))
 
 
-def check_aliases(aliases: object, name: str, decorator: str) -> tuple[str, ...]:
+def check_aliases(
+    aliases: object, name: str, caller: str, kind: str
+) -> tuple[str, ...]:
     if isinstance(aliases, str):
-        return (_check_alias(aliases, name, decorator),)
+        return (_check_alias(aliases, name, kind),)
     if not isinstance(aliases, Sequence):
-        raise TypeError(_not_aliases(aliases, decorator))
+        raise TypeError(_not_aliases(aliases, caller))
     checked: list[str] = []
     for alias in aliases:
         if not isinstance(alias, str):
-            raise TypeError(_not_aliases(aliases, decorator))
-        if _check_alias(alias, name, decorator) in checked:
-            message = f"aliases of @{decorator} lists {alias!r} twice. Remove one."
+            raise TypeError(_not_aliases(aliases, caller))
+        if _check_alias(alias, name, kind) in checked:
+            message = f"aliases of {caller} lists {alias!r} twice. Remove one."
             raise ValueError(message)
         checked.append(alias)
     return tuple(checked)
 
 
-def _check_alias(alias: str, name: str, decorator: str) -> str:
+def _check_alias(alias: str, name: str, kind: str) -> str:
     if not is_snake_case(alias):
         raise ValueError(_not_snake_case(alias, snake_case(alias)))
     if alias == name:
-        message = (
-            f"{alias!r} is already the {decorator}'s name. Remove it from aliases."
-        )
+        message = f"{alias!r} is already the {kind}'s name. Remove it from aliases."
         raise ValueError(message)
     return alias
+
+
+def check_help(help: object, caller: str) -> str | None:
+    if help is None or isinstance(help, str):
+        return help
+    message = (
+        f'{caller} takes help as a string, such as help="How many.", not {help!r}.'
+    )
+    raise TypeError(message)
 
 
 def check_parameter_name(name: object, decorator: str) -> str:
@@ -144,9 +153,9 @@ def _text(name: object, decorator: str) -> str:
     raise TypeError(message)
 
 
-def _not_aliases(aliases: object, decorator: str) -> str:
+def _not_aliases(aliases: object, caller: str) -> str:
     return (
-        f"@{decorator} takes aliases as a name or a list of names, "
+        f"{caller} takes aliases as a name or a list of names, "
         f"such as 'ls' or ['ls', 'l'], not {aliases!r}."
     )
 

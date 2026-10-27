@@ -91,23 +91,29 @@ class Definition:
         )
 
 
-class Node(Protocol):
-    kind: ClassVar[str]
-
+class Entry(Protocol):
     @property
     def name(self) -> str: ...
+
+    @property
+    def aliases(self) -> tuple[str, ...]: ...
+
+    def load(self) -> "Node": ...
+
+    def summary(self) -> str: ...
+
+
+class Node(Entry, Protocol):
+    kind: ClassVar[str]
 
     @property
     def function(self) -> Callable[..., object]: ...
 
     @property
-    def aliases(self) -> tuple[str, ...]: ...
+    def commands(self) -> Mapping[str, Entry]: ...
 
     @property
-    def commands(self) -> Mapping[str, "Node"]: ...
-
-    @property
-    def names(self) -> Mapping[str, "Node"]: ...
+    def names(self) -> Mapping[str, Entry]: ...
 
     def definition(self) -> Definition: ...
 
@@ -352,7 +358,8 @@ class Reader:
         if command is None:
             message = f"{word!r} isn't a {path} command.{_suggestion(word, names)}"
             segment.word_errors.append((start, ValueError(message)))
-        return command
+            return None
+        return command.load()
 
     def _read_long(self, segment: _Segment, word: str, start: int) -> None:
         flag, separator, value = word.partition("=")

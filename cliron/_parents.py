@@ -11,6 +11,7 @@ from typing import ClassVar, Protocol, TextIO, final
 
 from cliron._children import AnyChild, Child, check_below
 from cliron._names import (
+    check_help,
     check_parameter_name,
     check_short,
     check_variable,
@@ -48,7 +49,7 @@ class Parent(ABC):
         """
         written = decorator_of(self)
         self.name = check_parameter_name(name, written)
-        self.help = _check_help(help, written)
+        self.help = check_help(help, f"@{written}")
 
     @abstractmethod
     def load(self) -> str | Awaitable[str | None] | None:
@@ -296,7 +297,7 @@ def argument(
     """
     return Argument(
         check_parameter_name(name, "argument"),
-        _check_help(help, "argument"),
+        check_help(help, "@argument"),
         _check_completions(completions, "argument"),
     )
 
@@ -331,7 +332,7 @@ def option(
     return Option(
         check_parameter_name(name, "option"),
         check_short(short, "option"),
-        _check_help(help, "option"),
+        check_help(help, "@option"),
         _check_completions(completions, "option"),
     )
 
@@ -357,7 +358,7 @@ def flag(
     return Flag(
         check_parameter_name(name, "flag"),
         check_short(short, "flag"),
-        _check_help(help, "flag"),
+        check_help(help, "@flag"),
     )
 
 
@@ -383,7 +384,7 @@ def env(
     return Env(
         checked,
         check_variable(variable) or placeholder(checked),
-        _check_help(help, "env"),
+        check_help(help, "@env"),
     )
 
 
@@ -401,7 +402,7 @@ def stdin(name: str, *, help: str | None = None) -> Callable[[F], F]:
     :raises TypeError: If ``name`` or ``help`` isn't a string.
     :raises ValueError: If ``name`` isn't snake_case or is a Python keyword.
     """
-    return Stdin(check_parameter_name(name, "stdin"), _check_help(help, "stdin"))
+    return Stdin(check_parameter_name(name, "stdin"), check_help(help, "@stdin"))
 
 
 def _is_character_device(stream: TextIO) -> bool:
@@ -414,15 +415,6 @@ def _is_character_device(stream: TextIO) -> bool:
 
 def _flag_label(name: str, short: str | None) -> str:
     return long_flag(name) if short is None else f"{short}/{long_flag(name)}"
-
-
-def _check_help(help: object, decorator: str) -> str | None:
-    if help is None or isinstance(help, str):
-        return help
-    message = (
-        f'@{decorator} takes help as a string, such as help="How many.", not {help!r}.'
-    )
-    raise TypeError(message)
 
 
 def _check_completions(
