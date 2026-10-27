@@ -43,6 +43,7 @@
 - A group's `lazy` method adds a command or group by its `"module:attribute"` and imports that module only when the command runs or shows its help, or the completion script or `validate` needs it, so slow imports don't slow down the rest of the CLI.
 - The `fallback` decorator fills the parameter of the parent above it when that parent has no value, from an environment variable with `env` or a function with `fn`, such as `--token` falling back to `$API_TOKEN`, converting and checking the value like the parent's own and showing the variables in help.
 - The `enabled` parameter of `command`, `group` and a group's `lazy` method takes a function without arguments, such as one that checks the user's role, and when it returns `False`, help, completion and suggestions leave the command out and running it says it's disabled.
+- The `CLIRON_TIME`, `CLIRON_CPU` and `CLIRON_MEMORY` environment variables print, when a run ends, the time and CPU time it took since `cliron` was imported and the process's peak memory, in the unit the value names, such as `CLIRON_TIME=us`, or in milliseconds and megabytes for any other value but `0`.
 
 ### Changed
 

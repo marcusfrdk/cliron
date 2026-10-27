@@ -6,6 +6,7 @@ import sys
 from collections.abc import Generator, Mapping
 from pathlib import Path
 
+from cliron._measure import measured, now
 from cliron._parsing import MistakeError
 from cliron._roots import Command, Group, main
 
@@ -28,7 +29,10 @@ def run(
     :param env: The environment variables to run with, in place of this
         process's own, as ``subprocess.run`` takes them. They replace
         ``os.environ`` during the run, which is restored afterwards. ``None``
-        keeps the environment as it is.
+        keeps the environment as it is. ``CLIRON_TIME``, ``CLIRON_CPU`` and
+        ``CLIRON_MEMORY`` count only when they're given here, so a shell's
+        don't change a test's output, and the time and CPU time count from the
+        start of the run.
     :param input: The text to pipe into the CLI. ``None`` pipes nothing, as
         when stdin is the null device.
     :returns: The arguments, the exit code, and everything printed to stdout
@@ -41,6 +45,7 @@ def run(
         _stdin(input),
         contextlib.redirect_stdout(stdout.stream),
         contextlib.redirect_stderr(stderr.stream),
+        measured(env or {}, now()),
     ):
         try:
             returncode = main(cli, args)

@@ -64,11 +64,12 @@ try:
     notes()
 except SystemExit:
     pass
-print(sorted(name for name in ("difflib", "json", "subprocess") if name in sys.modules))
+loaded = ("ctypes", "difflib", "json", "resource", "subprocess")
+print(sorted(name for name in loaded if name in sys.modules))
 """
 
 
-def test_a_run_loads_json_difflib_and_subprocess_only_when_needed() -> None:
+def test_a_run_loads_heavy_or_platform_modules_only_when_needed() -> None:
     result = subprocess.run(
         [sys.executable, "-I", "-c", STDLIB_PROBE],
         check=True,

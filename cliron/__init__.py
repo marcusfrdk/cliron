@@ -1,6 +1,9 @@
 """Everything you need to build your own CLI."""
 
+import time as _time
 from typing import TYPE_CHECKING, cast
+
+_IMPORTED = (_time.perf_counter_ns(), _time.process_time_ns())
 
 if TYPE_CHECKING:
     from cliron._children import Child, between, child, choices, length, matches

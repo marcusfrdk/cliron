@@ -1,5 +1,6 @@
 import contextlib
 import inspect
+import os
 import sys
 import typing
 from collections.abc import (
@@ -47,6 +48,7 @@ from cliron._dependencies import Dependency, cycle_problem, dependencies_for
 from cliron._fallbacks import Fallback, fallbacks_of
 from cliron._help import first_line, plain, render_help, terminal_width, usage_hint
 from cliron._hooks import Attached, EventName, Hook, HookCall, first_handler, hooks_of
+from cliron._measure import imported, measured
 from cliron._names import (
     check_aliases,
     check_help,
@@ -176,6 +178,12 @@ class Root:
 
         A mistake in the CLI's definition that the run finds is printed with
         where it was made, instead of a traceback.
+
+        ``CLIRON_TIME`` and ``CLIRON_CPU`` print on stderr, when the run ends,
+        the time and the CPU time spent since ``cliron`` was imported, and
+        ``CLIRON_MEMORY`` the process's peak memory. The value names the unit:
+        ``ns``, ``us``, ``ms`` or ``s``, and ``b``, ``kb``, ``mb`` or ``gb``.
+        Any other value but ``0`` uses ``ms`` and ``mb``.
 
         :raises SystemExit: With 0 on success, 2 for invalid input, 143 for
             SIGTERM, and 1 for a closed pipe or a mistake in the definition.
@@ -733,13 +741,14 @@ def _contains(group: Group, node: Root) -> bool:
 
 
 def _main_or_mistake(root: Root, args: list[str]) -> int:
-    try:
-        return main(root, args)
-    except MistakeError as mistake:
-        notes = typing.cast("list[str]", getattr(mistake.error, "__notes__", []))
-        lines = [f"error: {mistake.error}", *(f"  {note}" for note in notes)]
-        _ = sys.stderr.write("".join(f"{line}\n" for line in lines))
-        return 1
+    with measured(os.environ, imported()):
+        try:
+            return main(root, args)
+        except MistakeError as mistake:
+            notes = typing.cast("list[str]", getattr(mistake.error, "__notes__", []))
+            lines = [f"error: {mistake.error}", *(f"  {note}" for note in notes)]
+            _ = sys.stderr.write("".join(f"{line}\n" for line in lines))
+            return 1
 
 
 def main(root: Node, args: list[str]) -> int:
