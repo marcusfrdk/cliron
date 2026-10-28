@@ -5,6 +5,7 @@ import subprocess
 import sys
 from collections.abc import Generator, Mapping
 from pathlib import Path
+from typing import TextIO
 
 from cliron._measure import measured, now
 from cliron._parsing import MistakeError
@@ -17,6 +18,7 @@ def run(
     *,
     env: Mapping[str, str] | None = None,
     input: str | None = None,
+    terminal: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     """
     Run a CLI in this process, as a test would run it in its own.
@@ -35,6 +37,9 @@ def run(
         start of the run.
     :param input: The text to pipe into the CLI. ``None`` pipes nothing, as
         when stdin is the null device.
+    :param terminal: Whether stdin is a terminal instead of a pipe, so that
+        ``@fallback(prompt=...)`` asks and reads its answers from ``input``,
+        one line each, and ``@stdin`` sees nothing piped.
     :returns: The arguments, the exit code, and everything printed to stdout
         and stderr.
     """
@@ -42,7 +47,7 @@ def run(
     stderr = _Capture("backslashreplace")
     with (
         _environment(env),
-        _stdin(input),
+        _stdin(input, terminal=terminal),
         contextlib.redirect_stdout(stdout.stream),
         contextlib.redirect_stderr(stderr.stream),
         measured(env or {}, now()),
@@ -72,16 +77,27 @@ def _environment(env: Mapping[str, str] | None) -> Generator[None]:
 
 
 @contextlib.contextmanager
-def _stdin(text: str | None) -> Generator[None]:
-    with (
-        Path(os.devnull).open(encoding="utf-8") if text is None else io.StringIO(text)
-    ) as stream:
+def _stdin(text: str | None, *, terminal: bool) -> Generator[None]:
+    with _stdin_stream(text, terminal=terminal) as stream:
         saved = sys.stdin
         sys.stdin = stream
         try:
             yield
         finally:
             sys.stdin = saved
+
+
+def _stdin_stream(text: str | None, *, terminal: bool) -> TextIO:
+    if terminal:
+        return _Terminal(text or "")
+    if text is None:
+        return Path(os.devnull).open(encoding="utf-8")
+    return io.StringIO(text)
+
+
+class _Terminal(io.StringIO):
+    def isatty(self) -> bool:
+        return True
 
 
 class _Capture:

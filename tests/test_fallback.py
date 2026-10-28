@@ -445,7 +445,7 @@ def test_a_fallback_must_decorate_a_function() -> None:
             {"env": "PORT", "fn": saved_port},
             TypeError,
             (
-                "@fallback takes one source, but got both env and fn. "
+                "@fallback takes one source, but got env and fn. "
                 "Put each in its own @fallback."
             ),
         ),

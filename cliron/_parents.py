@@ -156,7 +156,7 @@ class Stdin(Parent):
 
     def load(self) -> str | None:
         stream = sys.stdin
-        if stream is None or _is_character_device(stream):
+        if stream is None or _is_not_piped(stream):
             return None
         return stream.read()
 
@@ -414,12 +414,11 @@ def check_loader(function: object, taker: str, owner: str) -> str:
     return name
 
 
-def _is_character_device(stream: TextIO) -> bool:
+def _is_not_piped(stream: TextIO) -> bool:
     try:
-        mode = os.fstat(stream.fileno()).st_mode
+        return stream.isatty() or stat.S_ISCHR(os.fstat(stream.fileno()).st_mode)
     except (AttributeError, OSError, ValueError):
         return False
-    return stat.S_ISCHR(mode)
 
 
 def _flag_label(name: str, short: str | None) -> str:

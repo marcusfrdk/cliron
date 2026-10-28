@@ -169,6 +169,7 @@ class _Segment:
         self.start: int = start
         self.raw: dict[str, list[str]] = {}
         self.sources: dict[str, Fallback] = {}
+        self.asking: bool = True
         self.occurrences: dict[str, int] = {}
         self.words: list[tuple[int, str]] = []
         self.unknown: list[tuple[int, str]] = []
@@ -296,6 +297,8 @@ class _Segment:
 
     async def _fall_back(self, target: Input) -> None:
         for found in target.fallbacks:
+            if found.asks and not self.asking:
+                continue
             text = await settled(found.load(target.name))
             if text is not None:
                 self.raw[target.name] = [_text(text, f"@{found!r}", self.node)]
@@ -556,11 +559,14 @@ class Reader:
     async def _resolve(self) -> Parsed:
         path: list[tuple[Node, dict[str, object]]] = []
         errors: list[Exception] = []
-        for index, segment in enumerate(self.segments):
+        for segment in self.segments:
             segment.assign_arguments()
+        asking = not any(segment.word_errors for segment in self.segments)
+        for index, segment in enumerate(self.segments):
             command_path = node_path(part.node for part in self.segments[: index + 1])
             values: dict[str, object] = {}
             for target in segment.definition.inputs:
+                segment.asking = asking and not errors
                 values[target.name], problems = await segment.resolve(
                     target, command_path
                 )

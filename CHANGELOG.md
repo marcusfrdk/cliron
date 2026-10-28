@@ -44,6 +44,7 @@
 - The `fallback` decorator fills the parameter of the parent above it when that parent has no value, from an environment variable with `env` or a function with `fn`, such as `--token` falling back to `$API_TOKEN`, converting and checking the value like the parent's own and showing the variables in help.
 - The `enabled` parameter of `command`, `group` and a group's `lazy` method takes a function without arguments, such as one that checks the user's role, and when it returns `False`, help, completion and suggestions leave the command out and running it says it's disabled.
 - The `CLIRON_TIME`, `CLIRON_CPU` and `CLIRON_MEMORY` environment variables print, when a run ends, the time and CPU time it took since `cliron` was imported and the process's peak memory, in the unit the value names, such as `CLIRON_TIME=us`, or in milliseconds and megabytes for any other value but `0`.
+- `@fallback(prompt=True)` asks for a missing value on the terminal, `prompt="..."` asks your own question, and `hidden=True` hides the answer as it's typed, while scripts and pipes are never asked, and `cliron.testing.run` takes `terminal=True` to answer prompts from `input`.
 
 ### Changed
 
