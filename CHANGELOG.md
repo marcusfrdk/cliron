@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.2.0
+
 ### Added
 
 - The `command` and `group` decorators turn functions into commands and groups, and a group's `add` method puts commands and groups into it.

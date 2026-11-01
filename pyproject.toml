@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "cliron"
-version = "0.1.0"
+version = "0.2.0"
 description = "Everything you need to build your own CLI."
 readme = "README.md"
 license = "MIT"
@@ -13,7 +13,7 @@ requires-python = ">=3.11"
 dependencies = []
 keywords = ["cli", "command-line", "framework"]
 classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
+    "Development Status :: 3 - Alpha",
     "Environment :: Console",
     "Intended Audience :: Developers",
     "Operating System :: OS Independent",
