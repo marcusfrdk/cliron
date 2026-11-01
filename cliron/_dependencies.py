@@ -258,10 +258,11 @@ class Dependencies:
 
     def alone(self, name: str) -> Dependency:
         """
-        Forbid every other input that is typed or piped in with an input.
+        Forbid every other input that is given with an input.
 
-        Environment variables don't count, so one set in the shell never
-        stands in the way.
+        Inputs filled by ``env`` or by a ``fallback`` don't count, so a
+        variable set in the shell never stands in the way. When the input
+        itself comes from ``env``, setting its variable counts as giving it.
 
         :param name: The input that must be given alone.
         :returns: A dependency for the ``dependencies`` parameter.
@@ -365,7 +366,13 @@ def check_combinations(
     dependencies: Sequence[Dependency], env: frozenset[str], labels: Mapping[str, str]
 ) -> None:
     label = labels.__getitem__
-    for names, related in _groups(dependencies, env):
+    unnamed = [
+        name
+        for name in labels
+        if name not in env and not any(name in found.names for found in dependencies)
+    ]
+    for related_names, related in _groups(dependencies, env):
+        names = _with_stand_in(related_names, related, unnamed)
         valid = [given for given in _combinations(names, env) if _meets(related, given)]
         calls = joined([found.call for found in related], "and")
         if not valid:
@@ -394,10 +401,21 @@ def _check_redundancy(
         without = [
             given for given in _combinations(names, env) if _meets(others, given)
         ]
+        if without == valid and not others:
+            message = f"{found.call} is always met, so it does nothing. Remove it."
+            raise ValueError(message)
         if without == valid:
             implied_by = joined([other.call for other in others], "and")
             message = f"{found.call} is already implied by {implied_by}. Remove it."
             raise ValueError(message)
+
+
+def _with_stand_in(
+    names: list[str], related: list[Dependency], unnamed: list[str]
+) -> list[str]:
+    if unnamed and any(isinstance(found, Alone) for found in related):
+        return [*names, unnamed[0]]
+    return names
 
 
 def _groups(

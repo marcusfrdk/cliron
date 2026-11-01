@@ -586,6 +586,20 @@ VALIDATED = {
             'dependency.conflicts("a", "b"). Remove it.'
         ),
     ),
+    "conflicts implied by alone": (
+        [dependency.alone("a"), dependency.conflicts("a", "b")],
+        (
+            'dependency.conflicts("a", "b") is already implied by '
+            'dependency.alone("a"). Remove it.'
+        ),
+    ),
+    "alone implied by conflicts with every other input": (
+        [dependency.alone("a"), dependency.conflicts("a", "b", "c")],
+        (
+            'dependency.alone("a") is already implied by '
+            'dependency.conflicts("a", "b", "c"). Remove it.'
+        ),
+    ),
 }
 
 
@@ -605,6 +619,29 @@ def test_validate_rejects_dependencies_that_contradict_or_repeat(case: str) -> N
 
     assert run(pick, ["--help"]).returncode == 0
     assert info.value.__notes__[0].startswith("in command 'pick', defined at ")
+
+
+def test_validate_accepts_alone_as_the_only_dependency() -> None:
+    @command("pick", dependencies=[dependency.alone("a")])
+    @flag("a")
+    @flag("b")
+    @flag("c")
+    def pick(*, a: bool = False, b: bool = False, c: bool = False) -> None:
+        _ = (a, b, c)
+
+    validate(pick)
+
+
+def test_validate_rejects_alone_without_another_input_to_forbid() -> None:
+    @command("pick", dependencies=[dependency.alone("a")])
+    @flag("a")
+    @env("token")
+    def pick(token: str = "", *, a: bool = False) -> None:
+        _ = (token, a)
+
+    message = 'dependency.alone("a") is always met, so it does nothing. Remove it.'
+    with pytest.raises(ValueError, match=exactly(message)):
+        validate(pick)
 
 
 def test_validate_checks_each_group_of_related_inputs_alone() -> None:

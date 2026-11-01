@@ -32,7 +32,8 @@ class Parent(ABC):
     parameter from somewhere else, implement ``load``, and put an instance
     above the function: ``@DotEnv("api_key")``. cliron converts the text with
     the parameter's annotation and runs the children below the parent, as it
-    does for an environment variable.
+    does for an environment variable. Its parameter takes one value, not a
+    list or tuple.
     """
 
     name: str
@@ -63,6 +64,8 @@ class Parent(ABC):
     def label(self) -> str:
         """
         Name the input the way help and errors show it.
+
+        Two inputs of one command can't share a label.
 
         :returns: The label, such as ``--keep`` or ``$API_KEY``. By default,
             the parameter's name.
@@ -268,18 +271,18 @@ def argument(
     :param name: The parameter's name, in snake_case. Help and errors show it in
         capitals, such as ``NAME``.
     :param help: What the argument is for, shown in the command's help.
-    :param completions: What shell completion offers for the argument: a list of
-        values, or a function that takes the text typed so far and returns the
-        values, which runs each time Tab is pressed and may be ``async def``.
-        Either replaces the files or choices offered otherwise, and neither
-        limits what the argument accepts.
+    :param completions: What shell completion offers for the argument: a list
+        or tuple of values, or a function that takes the text typed so far and
+        returns the values, which runs each time Tab is pressed and may be
+        ``async def``. Either replaces the files or choices offered otherwise,
+        and neither limits what the argument accepts.
     :returns: A decorator for the function of a command.
     :raises TypeError: If ``name`` or ``help`` isn't a string, or
-        ``completions`` isn't a list of strings or a function that takes one
-        argument.
+        ``completions`` isn't a list or tuple of strings or a function that
+        takes one argument.
     :raises ValueError: If ``name`` isn't snake_case or is a Python keyword, or
-        a value in ``completions`` has a line break or another control
-        character.
+        a value in ``completions`` has a character that isn't printable, such
+        as a line break.
     """
     return Argument(
         check_parameter_name(name, "argument"),
@@ -303,17 +306,18 @@ def option(
     :param short: A short flag, such as ``"-c"``.
     :param help: What the option is for, shown in the help.
     :param completions: What shell completion offers for the option's value: a
-        list of values, or a function that takes the text typed so far and
-        returns the values, which runs each time Tab is pressed and may be
+        list or tuple of values, or a function that takes the text typed so
+        far and returns the values, which runs each time Tab is pressed and may be
         ``async def``. Either replaces the files or choices offered otherwise,
         and neither limits what the option accepts.
     :returns: A decorator for the function of a command or group.
     :raises TypeError: If ``name``, ``short`` or ``help`` isn't a string, or
-        ``completions`` isn't a list of strings or a function that takes one
-        argument.
+        ``completions`` isn't a list or tuple of strings or a function that
+        takes one argument.
     :raises ValueError: If ``name`` isn't snake_case or is a Python keyword,
         ``short`` isn't a dash and one ASCII letter, or a value in
-        ``completions`` has a line break or another control character.
+        ``completions`` has a character that isn't printable, such as a line
+        break.
     """
     return Option(
         check_parameter_name(name, "option"),

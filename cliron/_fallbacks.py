@@ -51,7 +51,7 @@ def fallback(
     source. After the parent, each ``@fallback`` is tried top-down, and the
     first one with text gives the value. Its text is converted and checked by
     the children like the parent's own. If none has text, the parameter's
-    default is used.
+    default is used. The parameter takes one value, not a list or tuple.
 
     :param env: The environment variable to read, such as ``"API_TOKEN"``. A
         variable that is set to an empty value counts as not set.
@@ -60,8 +60,9 @@ def fallback(
         It may be ``async def``, or decorated with ``@parent``.
     :param prompt: ``True`` to ask on the terminal, such as ``Api token:`` for
         ``api_token``, or the question to ask instead. It asks only when stdin
-        is a terminal, never once the command line has errors, and an empty
-        answer counts as no text.
+        is a terminal, never once the command line has words that fit nowhere
+        or an input before it has failed, and an empty answer counts as no
+        text.
     :param hidden: Whether the answer to ``prompt`` isn't shown as it's typed,
         as for a password.
     :returns: A decorator that goes below a parent, above its children.
@@ -70,7 +71,7 @@ def fallback(
         that takes the name as its only argument, ``prompt`` isn't ``True`` or
         a string, or ``hidden`` isn't a bool or comes without ``prompt``.
     :raises ValueError: If ``env`` isn't letters, digits and underscores that
-        don't start with a digit, or ``prompt`` is empty.
+        don't start with a digit, or ``prompt`` is empty or only whitespace.
     """
     variable = check_variable(env, "@fallback", "env")
     question = _check_prompt(prompt)

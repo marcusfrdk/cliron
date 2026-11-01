@@ -1,5 +1,9 @@
 set default-list
 
+[doc('Install the locked development environment')]
+sync:
+    uv sync --locked
+
 [doc('Format the code')]
 fmt:
     uv run --locked ruff check --fix-only

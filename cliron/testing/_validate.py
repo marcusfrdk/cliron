@@ -8,15 +8,17 @@ def validate(cli: Command | Group) -> None:
     """
     Check a CLI's whole definition, including commands no test runs.
 
-    A run only checks the commands on its own command line.
+    A run checks only the commands on its own command line, and only
+    ``validate`` checks whether dependencies contradict or repeat each other.
 
     :param cli: The command or group to check, with everything it contains.
     :raises TypeError: If a function, parameter or annotation doesn't fit its
-        decorators.
+        decorators, or a lazy command's target isn't a command or group.
     :raises ValueError: If a default doesn't fit its decorator, a flag is used
         twice, dependencies name an input without a default, require each other
         in a cycle, contradict each other or repeat each other, or a lazy
-        command's name or aliases differ from the ones it was added with.
+        command's name, aliases or ``enabled`` differ from the ones it was added
+        with.
     :raises ImportError: If a lazy command's module or attribute doesn't exist.
     """
     try:

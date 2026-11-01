@@ -1,6 +1,6 @@
 import re
 from collections.abc import Callable
-from datetime import date, datetime, time
+from datetime import UTC, date, datetime, time
 from enum import Enum
 from functools import partial
 from pathlib import Path
@@ -265,6 +265,52 @@ def test_between_dates_and_times(
     )
 
 
+@pytest.mark.parametrize(
+    ("annotation", "bounds", "typed", "error"),
+    [
+        (
+            datetime,
+            (datetime.fromisoformat("2020-01-01 00:00"), None),
+            "2026-06-01T00:00+00:00",
+            (
+                "2026-06-01 00:00:00+00:00 has a time zone, "
+                "but the bound doesn't. Leave it out."
+            ),
+        ),
+        (
+            datetime,
+            (datetime(2020, 1, 1, tzinfo=UTC), datetime(2030, 1, 1, tzinfo=UTC)),
+            "2026-06-01 00:00",
+            (
+                "2026-06-01 00:00:00 has no time zone, "
+                "but the bounds do. Add one, such as +00:00."
+            ),
+        ),
+        (
+            time,
+            (time(9), time(17)),
+            "12:00+02:00",
+            "12:00:00+02:00 has a time zone, but the bounds don't. Leave it out.",
+        ),
+    ],
+)
+def test_between_rejects_a_value_whose_time_zone_doesnt_match_its_bounds(
+    annotation: object,
+    bounds: tuple[datetime | time, datetime | time | None],
+    typed: str,
+    error: str,
+) -> None:
+    def when(moment: object) -> str:
+        return str(moment)
+
+    when.__annotations__["moment"] = annotation
+    cli = command("when")(option("moment")(between(*bounds)(when)))
+
+    assert run(cli, ["--moment", typed]).stderr == (
+        f"error: --moment: {error}\nRun 'when --help' for usage.\n"
+    )
+
+
 def test_children_check_each_item_and_each_line_of_stdin() -> None:
     @command("sum")
     @option("weight")
@@ -422,6 +468,18 @@ BAD_ARGUMENTS: dict[str, Bad] = {
             "@between(datetime.date(2020, 1, 1), "
             "datetime.datetime(2030, 1, 1, 0, 0)) mixes bound types. "
             "Use two numbers, two dates or two times."
+        ),
+    ),
+    "between mixed time zones": (
+        between,
+        (datetime.fromisoformat("2020-01-01 00:00"), datetime(2030, 1, 1, tzinfo=UTC)),
+        {},
+        TypeError,
+        (
+            "@between(datetime.datetime(2020, 1, 1, 0, 0), "
+            "datetime.datetime(2030, 1, 1, 0, 0, tzinfo=datetime.timezone.utc)) "
+            "mixes a bound with a time zone and one without. "
+            "Give both a time zone, or neither."
         ),
     ),
     "between none": (

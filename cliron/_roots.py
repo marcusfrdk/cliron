@@ -171,10 +171,11 @@ class Root:
         """
         Run the command line in ``sys.argv`` and exit.
 
-        Ctrl+C ends the program without a traceback. SIGTERM, and Ctrl+Break on
-        Windows, raise ``SystemExit(143)`` so that cleanup runs, unless the
-        program already handles or ignores them. On Linux and macOS, output that
-        a closed pipe can no longer take ends the program quietly with 1.
+        Ctrl+C ends the program without a traceback. On the main thread,
+        SIGTERM, and Ctrl+Break on Windows, raise ``SystemExit(143)`` so that
+        cleanup runs, unless the program already handles or ignores them, and
+        on Linux and macOS, output that a closed pipe can no longer take ends
+        the program quietly with 1.
 
         A mistake in the CLI's definition that the run finds is printed with
         where it was made, instead of a traceback.
@@ -183,7 +184,8 @@ class Root:
         the time and the CPU time spent since ``cliron`` was imported, and
         ``CLIRON_MEMORY`` the process's peak memory. The value names the unit:
         ``ns``, ``us``, ``ms`` or ``s``, and ``b``, ``kb``, ``mb`` or ``gb``.
-        Any other value but ``0`` uses ``ms`` and ``mb``.
+        An empty value or ``0`` turns one off, and any other value uses ``ms``
+        or ``mb``.
 
         :raises SystemExit: With 0 on success, 2 for invalid input, 143 for
             SIGTERM, and 1 for a closed pipe or a mistake in the definition.
@@ -342,11 +344,12 @@ class Group(Root):
         """
         Add a command or group that is imported only when it's needed.
 
-        ``target`` names it as ``"module:attribute"``, like an entry point. The
-        module, and everything it imports, is imported when the command line
-        runs it or shows its help, by ``validate``, and when the completion
-        script is made. Until then, the group's help shows ``help`` for it. Once
-        imported, its name, aliases and ``enabled`` must be the ones given here.
+        ``target`` names it as ``"module:attribute"``, with one attribute name.
+        The module, and everything it imports, is imported when the command
+        line runs it or shows its help, by ``validate``, when the completion
+        script is made while it's enabled, and when Tab completes one of its
+        values. The group's help always shows ``help`` for it. Once imported,
+        its name, aliases and ``enabled`` must be the ones given here.
 
         :param name: Its name, in snake_case.
         :param target: Where it is, such as ``"notes.archive:archive"``.
@@ -356,8 +359,9 @@ class Group(Root):
         :param enabled: A function without arguments that says whether it can
             be used, checked without importing it, as for ``@command``.
         :raises TypeError: If ``name``, ``target`` or ``help`` isn't a string,
-            ``aliases`` isn't a string or a list of strings, or ``enabled``
-            isn't a plain function that takes no arguments.
+            ``aliases`` isn't a string or a list or tuple of strings, or
+            ``enabled`` isn't a callable that takes no arguments or is
+            ``async def``.
         :raises ValueError: If ``name`` or an alias isn't snake_case, an alias is
             the name or is listed twice, ``target`` isn't ``"module:attribute"``,
             or the name or an alias is already a name or alias in the group.
@@ -462,8 +466,12 @@ def command(
     The ``argument``, ``option``, ``flag``, ``env`` and ``stdin`` decorators
     below this one fill the function's parameters from the command line, the
     environment and piped input, converted to the types of their annotations.
-    What the function returns is printed: nothing for ``None``, a ``str`` as it
-    is, and anything else as JSON.
+    What the function returns is written to stdout, followed by a line break,
+    and the run exits with 0. A ``str`` is written as it is, nothing is written
+    for ``None``, and anything else is written as JSON. A value that JSON can't
+    represent, such as a ``Path``, is an error. The decorator raises
+    ``TypeError`` or ``ValueError`` when the decorators below it don't fit
+    together, such as two inputs with the same flag.
 
     :param name: The command's name, in snake_case.
     :param aliases: Other names that run the command, in snake_case, such as
@@ -478,13 +486,15 @@ def command(
         are read.
     :param enabled: A function without arguments that says whether the command
         can be used, such as one that checks the user's role. When it returns
-        ``False``, help, completion and suggestions leave the command out, and
-        running it is an error. ``None`` means always.
+        ``False``, help and suggestions leave the command out, and running it
+        is an error. A completion script made while it returns ``False``
+        leaves it out too. ``None`` means always.
     :returns: A decorator that turns a function into the command.
     :raises TypeError: If ``name`` or ``version`` isn't a string, ``aliases``
-        isn't a string or a list of strings, ``help_flags`` isn't a bool or a
-        list of strings, ``dependencies`` isn't a list of dependencies, or
-        ``enabled`` isn't a plain function that takes no arguments.
+        isn't a string or a list or tuple of strings, ``help_flags`` isn't a
+        bool or a list or tuple of strings, ``dependencies`` isn't a list or
+        tuple of dependencies, or ``enabled`` isn't a callable that takes no
+        arguments or is ``async def``.
     :raises ValueError: If ``name`` or an alias isn't snake_case, an alias is
         the name or is listed twice, or a help flag isn't a short or long flag
         or is listed twice.
@@ -520,8 +530,11 @@ def group(
     function runs with its own options, flags and environment variables before
     the command that was asked for, and must return ``None``. A function that
     yields once runs the code after its ``yield`` once the command and the
-    groups inside have finished, and on failure the exception is raised at the
-    ``yield``, so ``try`` and ``finally`` around it work as usual.
+    groups inside have finished. On failure, the exception is raised at the
+    ``yield``, so ``finally`` and ``except`` around it run, but the exception
+    still propagates. The decorator raises ``TypeError`` or ``ValueError``
+    when the decorators below it don't fit together, such as two inputs with
+    the same flag.
 
     :param name: The group's name, in snake_case.
     :param aliases: Other names that run the group, in snake_case, such as
@@ -531,21 +544,22 @@ def group(
         or ``-h`` and ``--help`` at the top. ``False`` or an empty list turns
         help off.
     :param version: A version that ``--version`` prints, for the group and
-        everything in it, such as ``"1.4.0"``. ``None`` takes the enclosing
-        group's.
+        everything in it that doesn't choose its own, such as ``"1.4.0"``.
+        ``None`` takes the enclosing group's.
     :param dependencies: Dependencies between the group's own inputs, such as
         ``[dependency.together("user", "password")]``, checked after the inputs
         are read.
     :param enabled: A function without arguments that says whether the group
         and everything in it can be used, such as one that checks the user's
-        role. When it returns ``False``, help, completion and suggestions leave
-        the group out, and running anything in it is an error. ``None`` means
-        always.
+        role. When it returns ``False``, help and suggestions leave the group
+        out, and running anything in it is an error. A completion script made
+        while it returns ``False`` leaves it out too. ``None`` means always.
     :returns: A decorator that turns a function into the group.
     :raises TypeError: If ``name`` or ``version`` isn't a string, ``aliases``
-        isn't a string or a list of strings, ``help_flags`` isn't a bool or a
-        list of strings, ``dependencies`` isn't a list of dependencies, or
-        ``enabled`` isn't a plain function that takes no arguments.
+        isn't a string or a list or tuple of strings, ``help_flags`` isn't a
+        bool or a list or tuple of strings, ``dependencies`` isn't a list or
+        tuple of dependencies, or ``enabled`` isn't a callable that takes no
+        arguments or is ``async def``.
     :raises ValueError: If ``name`` or an alias isn't snake_case, an alias is
         the name or is listed twice, or a help flag isn't a short or long flag
         or is listed twice.

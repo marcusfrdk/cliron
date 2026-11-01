@@ -48,8 +48,9 @@ class Child(ABC, Generic[In_contra, Out_co]):
 
     Subclass it with the types it takes and returns, such as
     ``Child[int, int]``, implement ``process``, and put an instance below
-    the parent: ``@Even()``. A first child that takes ``str`` gets the text,
-    so it can convert it.
+    the parent: ``@Even()``. cliron reads the types from the annotations of
+    ``process``, so a first child whose ``process`` takes ``str`` gets the
+    text, and can convert it.
 
     :cvar default_check: When cliron runs the child on the parameter's
         default: ``"definition"`` checks it once, with the CLI's definition, and
@@ -115,6 +116,7 @@ class Between(Child[Bound, Bound]):
     high: Bound | None
 
     def process(self, value: Bound, /) -> Bound:
+        self._check_time_zone(value)
         below = self.low is not None and _less(value, self.low)
         above = self.high is not None and _less(self.high, value)
         if not (below or above):
@@ -126,6 +128,22 @@ class Between(Child[Bound, Bound]):
         else:
             problem = f"is more than {shown(self.high)}"
         message = f"{_shown_value(value)} {problem}."
+        raise ValueError(message)
+
+    def _check_time_zone(self, value: Bound) -> None:
+        bound = self.low if self.low is not None else self.high
+        if _zoned(value) == _zoned(bound):
+            return
+        both = self.low is not None and self.high is not None
+        if _zoned(value):
+            bounds = "the bounds don't" if both else "the bound doesn't"
+            message = f"{shown(value)} has a time zone, but {bounds}. Leave it out."
+        else:
+            bounds = "the bounds do" if both else "the bound does"
+            message = (
+                f"{shown(value)} has no time zone, but {bounds}. "
+                "Add one, such as +00:00."
+            )
         raise ValueError(message)
 
     def describe(self) -> str | None:
@@ -290,8 +308,8 @@ def child(function: Callable[Concatenate[T, P], R]) -> Callable[P, Child[T, R]]:
     :param function: The function, which takes the value as its first
         parameter.
     :returns: A function that takes the options and returns the child.
-    :raises TypeError: If ``function`` isn't a function, or doesn't take the
-        value as its first parameter.
+    :raises TypeError: If ``function`` isn't a ``def`` or ``lambda``, or doesn't
+        take the value as its first parameter.
     """
     if not isinstance(function, FunctionType):
         message = (
@@ -337,13 +355,15 @@ def between(
     One bound alone leaves the other side open: ``between(low=1)`` allows
     [1, ∞) and ``between(high=100)`` allows (-∞, 100]. It checks ``int``,
     ``float``, ``date``, ``datetime`` and ``time`` values, with bounds of the
-    same kind.
+    same kind, both with a time zone or neither. A value whose time zone
+    doesn't match the bounds' is invalid.
 
     :param low: The smallest value allowed.
     :param high: The largest value allowed.
     :returns: A decorator that goes below the parent whose value it checks.
     :raises TypeError: If a bound isn't a number, date or time, the bounds are
-        of different kinds, or neither bound is given.
+        of different kinds, only one of them has a time zone, or neither bound
+        is given.
     :raises ValueError: If ``low`` is above ``high``.
     """
     _check_parentheses(low, "between", "its bounds", "@between(1, 100)")
@@ -356,6 +376,12 @@ def between(
             message = (
                 f"@{found!r} mixes bound types. "
                 "Use two numbers, two dates or two times."
+            )
+            raise TypeError(message)
+        if _zoned(low) != _zoned(high):
+            message = (
+                f"@{found!r} mixes a bound with a time zone and one without. "
+                "Give both a time zone, or neither."
             )
             raise TypeError(message)
         if _less(high, low):
@@ -419,7 +445,8 @@ def choices(*values: object) -> Callable[[F], F]:
     :returns: A decorator that goes below the parent whose value it checks.
     :raises TypeError: If no values are given, a range or an Enum is given
         where values belong, or a collection is mixed with values.
-    :raises ValueError: If a value is given twice.
+    :raises ValueError: If a value is given twice, or two values are equal,
+        such as ``1`` and ``1.0``.
     """
     return _choices(values)
 
@@ -601,6 +628,10 @@ def _kind(bound: Bound) -> str:
     if isinstance(bound, date | time):
         return type(bound).__name__
     return "number"
+
+
+def _zoned(bound: Bound | None) -> bool:
+    return isinstance(bound, datetime | time) and bound.utcoffset() is not None
 
 
 def _bound_fits(bound: Bound, base: object) -> bool:

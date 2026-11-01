@@ -90,6 +90,7 @@ Every change moves cliron toward these three goals. Ask the user before making a
   ```
 
 - Every public module, class, function and method in `cliron` has a docstring. Types belong in annotations, never in docstring fields.
+- `README.md`, `GUIDE.md` and `REFERENCE.md` are written by hand, for people. A change to a docstring or to behavior users notice updates them in the same change.
 - Justfile recipes are described with the `[doc]` attribute.
 - Apart from the version comments on pinned GitHub Actions, the only allowed comment documents hidden behavior that our code cannot explain, such as why a workaround for a bug in a dependency exists. Such a comment links the upstream issue.
 - Lint and type-check suppressions go in `pyproject.toml`, never in comments.

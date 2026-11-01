@@ -24,12 +24,13 @@ def run(
     Run a CLI in this process, as a test would run it in its own.
 
     An exception the CLI doesn't handle propagates, so a test fails with its
-    traceback. A ``SystemExit`` the CLI raises becomes the exit code.
+    traceback, and so does a mistake in the CLI's definition, instead of exit
+    code 1. A ``SystemExit`` the CLI raises becomes the exit code.
 
     :param cli: The command or group to run.
     :param args: The command line after the program's name, one word per item.
     :param env: The environment variables to run with, in place of this
-        process's own, as ``subprocess.run`` takes them. They replace
+        process's own, as strings. They replace
         ``os.environ`` during the run, which is restored afterwards. ``None``
         keeps the environment as it is. ``CLIRON_TIME``, ``CLIRON_CPU`` and
         ``CLIRON_MEMORY`` count only when they're given here, so a shell's

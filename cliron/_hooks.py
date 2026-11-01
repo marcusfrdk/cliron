@@ -35,6 +35,9 @@ class On:
         """
         Run after the command or group succeeded, a group's teardown included.
 
+        It also runs after the node's error hook handled an exception. The
+        node's own error hooks don't cover it.
+
         :returns: The event.
         """
         return Event("success")
@@ -43,7 +46,9 @@ class On:
         """
         Run after the command or group, whether it succeeded or failed.
 
-        It runs exactly when the node's start hooks ran, like ``finally``.
+        It runs like ``finally``, once all of the node's start hooks have
+        finished. If one raises, none of the node's exit hooks run, even when
+        an error hook handles the exception.
 
         :returns: The event.
         """
@@ -56,7 +61,9 @@ class On:
         The hook's function takes the exception as the parameter annotated
         with the exceptions it handles, such as ``exc: FileNotFoundError``,
         and runs for the first matching handler on the node. It covers the
-        node's start hooks, its function and everything inside a group. When
+        node's start hooks, its function and everything inside a group, but
+        not the node's success and exit hooks, ``SystemExit``,
+        ``KeyboardInterrupt`` or mistakes in the definition. When
         it returns, the exception is handled: a command's handler's value
         becomes the command's result, and a group's handler returns ``None``.
         When it raises, the exception goes on to the nodes outside.
@@ -98,13 +105,16 @@ def hook(event: Event, callback: Callable[..., object]) -> Callable[[F], F]:
     Like the other decorators, a hook attaches to the nearest node above it,
     so it goes right below ``@command`` or ``@group``, above the first parent.
     Its function receives ``Context`` and ``@state`` classes by annotation, as
-    a command's does, and returns ``None``.
+    a command's does, and returns ``None``, except for ``on.error()``, whose
+    value handles the exception. Only ``on.error()`` can also go below a
+    parent or child, where its function receives only the exception and
+    returns the input's value.
 
     :param event: When to run, such as ``on.start()``.
     :param callback: The function to run.
     :returns: A decorator that goes right below ``@command`` or ``@group``.
     :raises TypeError: If ``event`` isn't an event, or ``callback`` isn't a
-        function.
+        ``def`` or ``lambda``.
     """
     return Hook(_checked_event(event), _checked_callback(callback))
 
