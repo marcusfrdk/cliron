@@ -50,7 +50,7 @@ error: 'ad' isn't a notes command. Did you mean 'add'?
 Run 'notes --help' for usage.
 ```
 
-The [guide](GUIDE.md) shows how to use cliron, and the [reference](REFERENCE.md) describes every public function and class.
+The [guide](https://github.com/marcusfrdk/cliron/blob/main/GUIDE.md) shows how to use cliron, and the [reference](https://github.com/marcusfrdk/cliron/blob/main/REFERENCE.md) describes every public function and class.
 
 ## Development
 
@@ -60,7 +60,7 @@ Install the virtual environment and development dependencies in order to start d
 just sync
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) to contribute.
+See [CONTRIBUTING.md](https://github.com/marcusfrdk/cliron/blob/main/CONTRIBUTING.md) to contribute.
 
 ## License
 

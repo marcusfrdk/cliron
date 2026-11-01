@@ -29,8 +29,8 @@
 - Every parent, built-in or your own, is a `Parent`, so `isinstance` recognizes all of them.
 - Errors and help name an option or flag that has a short flag by both flags, such as `-k/--keep`.
 - A function's parameter annotated `Context` receives the path of the run, as users typed it.
-- The `state` decorator marks a class for your own data: every parameter annotated with it receives the run's one instance, so groups and commands can share it.
-- A group's function that yields once runs the code after its `yield` when everything inside the group has finished, even on failure, and the command's output is printed only once every teardown has succeeded.
+- The `state` decorator marks a class for your own data, and every parameter annotated with it receives the run's one instance, so groups and commands can share it.
+- A group's function that yields once runs the code after its `yield` when everything inside the group has finished, even on failure, and the command's result is written only once every teardown has succeeded.
 - The `hook` decorator runs a function when a command or group starts, succeeds or exits, chosen with `on.start()`, `on.success()` and `on.exit()`, and a group's hooks wrap everything inside it.
 - `Context.values` holds the values of every command and group on the path, in the same order as `Context.path`.
 - `on.error()` hooks handle the exceptions that leave a command or group, chosen by the annotation of the handler's exception parameter, and a command's handler's return value becomes its result.
@@ -39,7 +39,7 @@
 - An event loop runs only when something on the command line being run is async, so a sync CLI never imports asyncio, and Ctrl+C and SIGTERM cancel an async run so that its cleanup runs.
 - Every CLI prints a shell completion script for bash, zsh or fish with a hidden `--completion SHELL`, completing commands, options, choices and paths without starting Python on Tab.
 - The `aliases` parameter of `command` and `group` takes one name or a list of names that run it too, such as `@command("list", aliases="ls")`, and help and shell completion show them with the name.
-- The `completions` parameter of `argument` and `option` sets what shell completion offers: a list of values, or a function that takes the text typed so far and runs when Tab is pressed, such as one that reads names from a database.
+- The `completions` parameter of `argument` and `option` sets what shell completion offers, as a list of values or as a function that takes the text typed so far and runs when Tab is pressed, such as one that reads names from a database.
 - A group's `lazy` method adds a command or group by its `"module:attribute"` and imports that module only when the command runs or shows its help, or the completion script or `validate` needs it, so slow imports don't slow down the rest of the CLI.
 - The `fallback` decorator fills the parameter of the parent above it when that parent has no value, from an environment variable with `env` or a function with `fn`, such as `--token` falling back to `$API_TOKEN`, converting and checking the value like the parent's own and showing the variables in help.
 - The `enabled` parameter of `command`, `group` and a group's `lazy` method takes a function without arguments, such as one that checks the user's role, and when it returns `False`, help, completion and suggestions leave the command out and running it says it's disabled.

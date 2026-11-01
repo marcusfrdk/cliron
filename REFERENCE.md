@@ -398,7 +398,7 @@ The hooks of one event run in the order they're written. A hook that raises fail
 An `on.error()` hook's function takes the exception as the parameter annotated with the exceptions it handles, such as `exc: FileNotFoundError`. The first matching hook of the command or group runs.
 
 - It covers the start hooks, the function, and everything inside a group. It doesn't cover the success and exit hooks, `SystemExit`, `KeyboardInterrupt` or mistakes in the definition.
-- When it returns, the exception is handled. What a command's hook returns becomes the command's result, and a group's hook returns `None`.
+- When it returns, the exception is handled. What a command's hook returns becomes the command's result, so it must fit the command's return annotation, such as a `str` for `-> str`. A value that doesn't fit is an error, with exit code 1. A group's hook returns `None`.
 - When it raises, the exception goes on to the groups outside.
 
 Only `on.error()` can also go below a parent or a child. There, its function takes only the exception, and returns the parameter's value.

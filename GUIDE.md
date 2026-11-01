@@ -126,11 +126,11 @@ For each parameter, cliron:
 
 Every input is read and checked before any group or command runs, or any hook around one. If any is invalid, every problem is listed at once, and none of them runs. An error hook below a parent or child is part of reading the inputs, as [Handling errors](#handling-errors) shows.
 
-| A mistake                                                                                  | Is found                                                    |
-| ------------------------------------------------------------------------------------------ | ----------------------------------------------------------- |
-| A decorator in the wrong place, such as a child above every parent                         | When the module is imported                                 |
-| A parameter without a decorator, a type cliron can't convert, or a default a child rejects | When the command first runs, or by [`validate`](#8-testing) |
-| Invalid input                                                                              | On every run, with exit code 2                              |
+| A mistake                                                                                                                         | Is found                                                    |
+| --------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| A decorator in the wrong place, such as a child above every parent                                                                | When the module is imported                                 |
+| A parameter without a decorator, a type cliron can't convert, arguments in an order that can't work, or a default a child rejects | When the command first runs, or by [`validate`](#8-testing) |
+| Invalid input                                                                                                                     | On every run, with exit code 2                              |
 
 ## 4. Taking input
 
@@ -916,6 +916,7 @@ exit code 0
 
 - An error hook's function takes the exception, annotated with the types it handles, such as `FileNotFoundError` or `KeyError | ValueError`. The first matching hook runs.
 - What it returns becomes the command's result, so it's written to stdout and the run succeeds.
+- It returns the type the command is annotated with, such as a `str` for `-> str`, or the run fails with exit code 1. A command annotated `-> str | None` lets it return `None`, which writes nothing.
 - To fail instead, raise `SystemExit`. `raise SystemExit(f"There's no {exc.filename}.")` writes the message to stderr and exits with 1.
 - A group's error hook covers everything inside it, and returns `None`, so the run succeeds without writing a result.
 - An exception that no hook handles prints its traceback, and exits with 1.

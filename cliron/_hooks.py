@@ -63,10 +63,11 @@ class On:
         and runs for the first matching handler on the node. It covers the
         node's start hooks, its function and everything inside a group, but
         not the node's success and exit hooks, ``SystemExit``,
-        ``KeyboardInterrupt`` or mistakes in the definition. When
-        it returns, the exception is handled: a command's handler's value
-        becomes the command's result, and a group's handler returns ``None``.
-        When it raises, the exception goes on to the nodes outside.
+        ``KeyboardInterrupt`` or mistakes in the definition. When it returns,
+        the exception is handled. A command's handler's value becomes the
+        command's result, so it must fit the command's return annotation, and a
+        group's handler returns ``None``. When it raises, the exception goes on
+        to the nodes outside.
 
         :returns: The event.
         """
