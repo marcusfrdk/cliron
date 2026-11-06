@@ -13,7 +13,7 @@ from cliron._conversion import NUMBER, Converter, describe, fits_value
 from cliron._dependencies import Dependency, Given
 from cliron._fallbacks import Fallback
 from cliron._hooks import HookCall, first_handler
-from cliron._names import closest, joined, long_flag, token
+from cliron._names import closest, joined, token
 from cliron._nodes import settled
 from cliron._parents import Argument, Env, Parent, Stdin, call, flags
 
@@ -499,7 +499,7 @@ class Reader:
         elif rest.startswith("="):
             value = rest[1:]
             separate = (
-                f"{long_flag(target.name)}={value}"
+                f"{flags(target.parent)[0]}={value}"
                 if _is_option(value)
                 else f"{flag} {value}"
             )
@@ -518,7 +518,7 @@ class Reader:
         if _is_option(word):
             message = (
                 f"{target.display} needs a value. "
-                f"To pass {word!r}, write {long_flag(target.name)}={word}."
+                f"To pass {word!r}, write {flags(target.parent)[0]}={word}."
             )
             segment.report(target, LookupError(message))
             return

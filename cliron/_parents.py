@@ -12,10 +12,10 @@ from typing import ClassVar, TextIO, final
 from cliron._children import AnyChild, Child, check_below
 from cliron._names import (
     check_help,
+    check_long,
     check_parameter_name,
     check_short,
     check_variable,
-    long_flag,
     placeholder,
 )
 from cliron._nodes import F, nodes_of, store
@@ -115,23 +115,25 @@ class Argument(CommandLineParent):
 class Option(CommandLineParent):
     decorator: ClassVar[str] = "option"
     name: str
+    long: str
     short: str | None = None
     help: str | None = None
     completions: tuple[str, ...] | Suggest | None = None
 
     def label(self) -> str:
-        return _flag_label(self.name, self.short)
+        return _flag_label(self.long, self.short)
 
 
 @dataclass(frozen=True)
 class Flag(CommandLineParent):
     decorator: ClassVar[str] = "flag"
     name: str
+    long: str
     short: str | None = None
     help: str | None = None
 
     def label(self) -> str:
-        return _flag_label(self.name, self.short)
+        return _flag_label(self.long, self.short)
 
 
 @dataclass(frozen=True)
@@ -208,8 +210,8 @@ def flags(parent: Parent) -> tuple[str, ...]:
     if not isinstance(parent, Option | Flag):
         return ()
     if parent.short is None:
-        return (long_flag(parent.name),)
-    return (long_flag(parent.name), parent.short)
+        return (parent.long,)
+    return (parent.long, parent.short)
 
 
 def call(parent: Parent) -> str:
@@ -295,6 +297,7 @@ def option(
     name: str,
     short: str | None = None,
     *,
+    long: str | None = None,
     help: str | None = None,
     completions: Sequence[str] | Suggest | None = None,
 ) -> Callable[[F], F]:
@@ -304,6 +307,8 @@ def option(
     :param name: The parameter's name, in snake_case. The long flag is derived
         from it: ``dry_run`` becomes ``--dry-run``.
     :param short: A short flag, such as ``"-c"``.
+    :param long: The long flag to use instead of the derived one, such as
+        ``"--output"``.
     :param help: What the option is for, shown in the help.
     :param completions: What shell completion offers for the option's value: a
         list or tuple of values, or a function that takes the text typed so
@@ -311,16 +316,18 @@ def option(
         ``async def``. Either replaces the files or choices offered otherwise,
         and neither limits what the option accepts.
     :returns: A decorator for the function of a command or group.
-    :raises TypeError: If ``name``, ``short`` or ``help`` isn't a string, or
-        ``completions`` isn't a list or tuple of strings or a function that
-        takes one argument.
+    :raises TypeError: If ``name``, ``short``, ``long`` or ``help`` isn't a
+        string, or ``completions`` isn't a list or tuple of strings or a
+        function that takes one argument.
     :raises ValueError: If ``name`` isn't snake_case or is a Python keyword,
-        ``short`` isn't a dash and one ASCII letter, or a value in
-        ``completions`` has a character that isn't printable, such as a line
-        break.
+        ``short`` isn't a dash and one ASCII letter, ``long`` isn't two dashes
+        and a kebab-case name, or a value in ``completions`` has a character
+        that isn't printable, such as a line break.
     """
+    checked = check_parameter_name(name, "option")
     return Option(
-        check_parameter_name(name, "option"),
+        checked,
+        check_long(long, checked, "option"),
         check_short(short, "option"),
         check_help(help, "@option"),
         _check_completions(completions, "option"),
@@ -328,7 +335,11 @@ def option(
 
 
 def flag(
-    name: str, short: str | None = None, *, help: str | None = None
+    name: str,
+    short: str | None = None,
+    *,
+    long: str | None = None,
+    help: str | None = None,
 ) -> Callable[[F], F]:
     """
     Fill a parameter from a flag that takes no value, such as ``--verbose``.
@@ -339,14 +350,20 @@ def flag(
     :param name: The parameter's name, in snake_case. The long flag is derived
         from it: ``dry_run`` becomes ``--dry-run``.
     :param short: A short flag, such as ``"-v"``.
+    :param long: The long flag to use instead of the derived one, such as
+        ``"--loud"``.
     :param help: What the flag is for, shown in the help.
     :returns: A decorator for the function of a command or group.
-    :raises TypeError: If ``name``, ``short`` or ``help`` isn't a string.
-    :raises ValueError: If ``name`` isn't snake_case or is a Python keyword, or
-        ``short`` isn't a dash and one ASCII letter.
+    :raises TypeError: If ``name``, ``short``, ``long`` or ``help`` isn't a
+        string.
+    :raises ValueError: If ``name`` isn't snake_case or is a Python keyword,
+        ``short`` isn't a dash and one ASCII letter, or ``long`` isn't two
+        dashes and a kebab-case name.
     """
+    checked = check_parameter_name(name, "flag")
     return Flag(
-        check_parameter_name(name, "flag"),
+        checked,
+        check_long(long, checked, "flag"),
         check_short(short, "flag"),
         check_help(help, "@flag"),
     )
@@ -425,8 +442,8 @@ def _is_not_piped(stream: TextIO) -> bool:
         return False
 
 
-def _flag_label(name: str, short: str | None) -> str:
-    return long_flag(name) if short is None else f"{short}/{long_flag(name)}"
+def _flag_label(long: str, short: str | None) -> str:
+    return long if short is None else f"{short}/{long}"
 
 
 def _check_completions(

@@ -204,7 +204,7 @@ error: TEXT is required.
 Run 'add --help' for usage.
 ```
 
-Options and arguments can come in any order. Short flags combine, so `-pv` is `-p -v`. A flag's parameter defaults to `False`, or to `0` to count it. An option annotated `list[str]` can be given several times.
+Options and arguments can come in any order. Short flags combine, so `-pv` is `-p -v`. A flag's parameter defaults to `False`, or to `0` to count it. An option annotated `list[str]` can be given several times. To type something other than the parameter's name, set `long`, so `@option("output_path", long="--output")` is `--output`.
 
 ### Types
 

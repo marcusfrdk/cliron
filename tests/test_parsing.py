@@ -1008,3 +1008,66 @@ def test_attached_equals_value_starting_with_a_dash_suggests_the_long_form() -> 
             "Run 'save --help' for usage.\n"
         ),
     )
+
+
+@command("write")
+@option("output_path", "-o", long="--output")
+def write(output_path: str = "out.txt") -> str:
+    return output_path
+
+
+@pytest.mark.parametrize(
+    "args", [["--output", "a.txt"], ["--output=a.txt"], ["-o", "a.txt"]]
+)
+def test_long_sets_the_flag_users_type(args: list[str]) -> None:
+    result = run(write, args)
+
+    assert (result.returncode, result.stdout, result.stderr) == (0, "a.txt\n", "")
+
+
+def test_long_replaces_the_derived_flag() -> None:
+    result = run(write, ["--output-path", "a.txt"])
+
+    assert (result.returncode, result.stdout, result.stderr) == (
+        2,
+        "",
+        (
+            "error: unknown option '--output-path'. Did you mean '--output'?\n"
+            "Run 'write --help' for usage.\n"
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    ("args", "errors"),
+    [
+        (
+            ["-o", "-x"],
+            (
+                "error: -o/--output needs a value. "
+                "To pass '-x', write --output=-x.\n"
+                "error: unknown option '-x'.\n"
+            ),
+        ),
+        (["-o=-x"], "error: Use -o-x or --output=-x instead of -o=-x.\n"),
+    ],
+)
+def test_errors_suggest_the_flag_set_with_long(args: list[str], errors: str) -> None:
+    result = run(write, args)
+
+    assert (result.returncode, result.stdout, result.stderr) == (
+        2,
+        "",
+        f"{errors}Run 'write --help' for usage.\n",
+    )
+
+
+def test_long_works_on_a_flag_and_may_start_with_a_digit() -> None:
+    @command("login")
+    @flag("two_factor", long="--2fa")
+    def login(*, two_factor: bool = False) -> str:
+        return "code" if two_factor else "password"
+
+    result = run(login, ["--2fa"])
+
+    assert (result.returncode, result.stdout, result.stderr) == (0, "code\n", "")

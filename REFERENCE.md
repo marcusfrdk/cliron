@@ -144,13 +144,14 @@ A `completions` function runs each time Tab is pressed, and may be `async def`.
 Fills a parameter of a command or group from an option that takes a value.
 
 ```python
-option(name, short=None, *, help=None, completions=None)
+option(name, short=None, *, long=None, help=None, completions=None)
 ```
 
 | Parameter     | Default  | What it does                                                                    |
 | ------------- | -------- | ------------------------------------------------------------------------------- |
 | `name`        | required | The parameter to fill. Users type it in kebab-case, so `dry_run` is `--dry-run` |
 | `short`       | `None`   | A short flag, such as `"-c"`                                                    |
+| `long`        | `None`   | The flag users type instead of the derived one, such as `"--output"`            |
 | `help`        | `None`   | What help says about it                                                         |
 | `completions` | `None`   | What Tab offers for its value, as for [`argument`](#argument)                   |
 
@@ -161,13 +162,14 @@ Users type `--count 3`, `--count=3`, `-c 3` or `-c3`. An option annotated `list[
 Fills a parameter of a command or group from a flag that takes no value.
 
 ```python
-flag(name, short=None, *, help=None)
+flag(name, short=None, *, long=None, help=None)
 ```
 
 | Parameter | Default  | What it does                                                                    |
 | --------- | -------- | ------------------------------------------------------------------------------- |
 | `name`    | required | The parameter to fill. Users type it in kebab-case, so `dry_run` is `--dry-run` |
 | `short`   | `None`   | A short flag, such as `"-v"`                                                    |
+| `long`    | `None`   | The flag users type instead of the derived one, such as `"--output"`            |
 | `help`    | `None`   | What help says about it                                                         |
 
 A `bool` parameter is `True` when the flag is given. An `int` parameter counts how often it's given, so `-vvv` is `3`.

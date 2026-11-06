@@ -5,7 +5,7 @@ from collections.abc import Iterable, Sequence
 _SNAKE_CASE = re.compile(r"[a-z][a-z0-9]*(?:_[a-z0-9]+)*")
 _WORD = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z0-9]+")
 _SHORT_FLAG = re.compile(r"-[A-Za-z]")
-_LONG_FLAG = re.compile(r"--[a-z][a-z0-9]*(?:-[a-z0-9]+)*")
+_LONG_FLAG = re.compile(r"--[a-z0-9]+(?:-[a-z0-9]+)*")
 _VARIABLE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
@@ -95,6 +95,24 @@ def check_short(short: object, decorator: str) -> str | None:
     if short is None or _SHORT_FLAG.fullmatch(short):
         return short
     message = f"{short!r} isn't a short flag. Use a dash and one letter, such as '-c'."
+    raise ValueError(message)
+
+
+def check_long(long: object, name: str, decorator: str) -> str:
+    if long is None:
+        return long_flag(name)
+    if not isinstance(long, str):
+        message = (
+            f"@{decorator} takes the long flag as a string, such as '--count', "
+            f"not {long!r}."
+        )
+        raise TypeError(message)
+    if _LONG_FLAG.fullmatch(long):
+        return long
+    message = (
+        f"{long!r} isn't a long flag. "
+        "Use two dashes and a kebab-case name, such as '--count'."
+    )
     raise ValueError(message)
 
 

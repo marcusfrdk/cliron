@@ -700,3 +700,20 @@ def test_a_completion_value_must_fit_on_one_line() -> None:
     )
     with pytest.raises(ValueError, match=exactly(message)):
         _ = option("region", completions=["eu\n"])
+
+
+@POSIX
+@pytest.mark.skipif(BASH is None, reason="needs bash")
+def test_bash_completes_the_flag_set_with_long(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, place: Path
+) -> None:
+    @command("notes")
+    @option("notes_db", long="--db")
+    def cli(notes_db: str = "") -> None:
+        _ = notes_db
+
+    monkeypatch.setattr(sys, "argv", ["/usr/local/bin/notes"])
+    path = tmp_path / "notes.bash"
+    _ = path.write_text(run(cli, ["--completion", "bash"]).stdout, encoding="utf-8")
+
+    assert bash(path, "notes --", place) == ["--db", "--help"]

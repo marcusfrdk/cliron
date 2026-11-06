@@ -668,3 +668,18 @@ def test_validate_checks_each_group_of_related_inputs_alone() -> None:
         _ = (token, a, b, c, d)
 
     validate(pick)
+
+
+def test_a_dependency_names_the_flag_set_with_long() -> None:
+    @command("pick", dependencies=[dependency.requires("output_path", "force")])
+    @option("output_path", "-o", long="--output")
+    @flag("force", long="--yes")
+    def pick(output_path: str = "", *, force: bool = False) -> None:
+        _ = (output_path, force)
+
+    result = run(pick, ["--output", "a.txt"])
+
+    assert (result.returncode, result.stderr) == (
+        2,
+        f"error: -o/--output requires --yes.\n{HINT}",
+    )

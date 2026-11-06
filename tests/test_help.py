@@ -3127,3 +3127,39 @@ def test_choices_replace_the_placeholder_of_every_kind_of_input() -> None:
     assert "  LEVEL [1|2|3]" in result.stdout
     assert "  stdin [ada|bob]" in result.stdout
     assert "One per line." in result.stdout
+
+
+@command("save")
+@option("output_path", "-o", long="--output", help="Where to write.")
+@option("retries", long="--tries", help="How many tries.")
+def save(output_path: str = "out.txt", retries: int = 1) -> str:
+    return f"{output_path} {retries}"
+
+
+def test_help_shows_the_flag_set_with_long() -> None:
+    result = run(save, ["--help"])
+
+    assert result.stdout == (
+        "Usage: save [OPTIONS]\n"
+        "\n"
+        "Options:\n"
+        "  -o, --output TEXT  Where to write. (default: out.txt)\n"
+        "  --tries INT        How many tries. (default: 1)\n"
+        "  -h, --help         Show this help and exit.\n"
+    )
+
+
+def test_errors_label_an_input_with_the_flag_set_with_long() -> None:
+    @command("count")
+    @option("amount", "-a", long="--number")
+    @option("retries", long="--tries")
+    def count(amount: int = 1, retries: int = 1) -> str:
+        return f"{amount} {retries}"
+
+    result = run(count, ["-a", "x", "--tries", "y"])
+
+    assert result.stderr == (
+        "error: -a/--number: 'x' isn't a whole number.\n"
+        "error: --tries: 'y' isn't a whole number.\n"
+        "Run 'count --help' for usage.\n"
+    )

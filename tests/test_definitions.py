@@ -909,3 +909,70 @@ def test_parameter_whose_suggestion_is_a_keyword_is_renamed_with_an_underscore(
     )
     with pytest.raises(TypeError, match=exactly(message)):
         _ = check(check_)
+
+
+@pytest.mark.parametrize("decorator", [option, flag])
+@pytest.mark.parametrize(
+    "long",
+    ["output", "-o", "---output", "--Output", "--output_path", "--", "--output-"],
+)
+def test_long_flag_must_be_two_dashes_and_a_kebab_case_name(
+    decorator: Callable[..., object], long: str
+) -> None:
+    message = (
+        f"{long!r} isn't a long flag. "
+        "Use two dashes and a kebab-case name, such as '--count'."
+    )
+    with pytest.raises(ValueError, match=exactly(message)):
+        _ = decorator("output_path", long=long)
+
+
+@pytest.mark.parametrize(("decorator", "name"), [(option, "option"), (flag, "flag")])
+@pytest.mark.parametrize("long", [1, True])
+def test_long_flag_that_isnt_a_string_is_rejected(
+    decorator: Callable[..., object], name: str, long: object
+) -> None:
+    message = (
+        f"@{name} takes the long flag as a string, such as '--count', not {long!r}."
+    )
+    with pytest.raises(TypeError, match=exactly(message)):
+        _ = decorator("count", long=long)
+
+
+def test_long_flag_that_another_input_uses_is_rejected() -> None:
+    @option("amount", long="--count")
+    @option("count")
+    def greet(amount: int = 1, count: int = 1) -> str:
+        return f"{amount} {count}"
+
+    message = (
+        '--count is used by both @option("amount") and @option("count"). '
+        "Rename one of them."
+    )
+    with pytest.raises(ValueError, match=exactly(message)):
+        _ = command("greet")(greet)
+
+
+def test_long_flag_that_the_help_flag_uses_is_rejected() -> None:
+    @command("explain")
+    @option("topic", long="--help")
+    def explain(topic: str = "") -> str:
+        return topic
+
+    message = (
+        '--help is used by both @option("topic") and help. '
+        "Use another flag, or choose other help_flags."
+    )
+    with pytest.raises(ValueError, match=exactly(message)):
+        validate(explain)
+
+
+def test_long_flag_may_repeat_the_derived_one() -> None:
+    @command("greet")
+    @option("count", long="--count")
+    def greet(count: int = 1) -> str:
+        return str(count)
+
+    result = run(greet, ["--count", "2"])
+
+    assert (result.returncode, result.stdout, result.stderr) == (0, "2\n", "")

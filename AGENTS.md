@@ -49,7 +49,7 @@ Every change moves cliron toward these three goals. Ask the user before making a
 - A parent belongs to the root node above it. A fallback belongs to the parent above it and comes before that parent's children. A child attaches to the nearest parent above it. A hook attaches to the nearest node of any kind above it, and a fallback counts as part of its parent.
 - Types and defaults live only in the function signature, never on parent nodes.
 - Classes use CapWords and functions snake_case, as PEP 8 says. Node classes are no exception.
-- Node names are snake_case. What users type is derived from them: kebab-case for commands and flags, SCREAMING_SNAKE_CASE for environment variables.
+- Node names are snake_case. What users type is derived from them: kebab-case for commands and flags, SCREAMING_SNAKE_CASE for environment variables. `long` on an option or flag replaces the derived flag, as `variable` does for an environment variable.
 
 ## Testing
 

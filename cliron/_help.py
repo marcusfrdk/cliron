@@ -7,8 +7,8 @@ from typing import Literal, TextIO, cast
 
 from cliron._builtin_options import Builtins
 from cliron._conversion import shown
-from cliron._names import long_flag, placeholder, token
-from cliron._parents import CommandLineParent, Env, Flag, Option, Stdin
+from cliron._names import placeholder, token
+from cliron._parents import CommandLineParent, Env, Flag, Option, Stdin, flags
 from cliron._parsing import Input, Node, node_path
 
 _MAX_WIDTH = 80
@@ -229,12 +229,8 @@ def _value_row(name: str, target: Input) -> HelpRow:
 
 
 def _option_row(target: Input) -> HelpRow:
-    parent = target.parent
-    names = [long_flag(target.name)]
-    if isinstance(parent, Option | Flag) and parent.short is not None:
-        names.insert(0, parent.short)
     value = None if target.converter is None else target.converter.metavar
-    return _row(tuple(names), value, target)
+    return _row(tuple(reversed(flags(target.parent))), value, target)
 
 
 def _row(names: tuple[str, ...], value: str | None, target: Input) -> HelpRow:
