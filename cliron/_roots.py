@@ -55,6 +55,7 @@ from cliron._names import (
     check_name,
     closest,
     is_parameter_name,
+    joined,
     parameter_suggestion,
     token,
 )
@@ -74,16 +75,19 @@ from cliron._parents import (
     parents_of,
 )
 from cliron._parsing import (
+    PLATFORMS,
     VALUES,
     Definition,
     Input,
     MistakeError,
     Node,
+    Platform,
     Reader,
     Request,
     disabled,
     location,
     node_path,
+    runs_here,
 )
 from cliron._signals import finish, run_in_loop
 
@@ -112,6 +116,7 @@ class Settings:
     help_option: HelpOption | None
     version_option: VersionOption | None
     dependencies: tuple[Dependency, ...]
+    platforms: tuple[Platform, ...] | None
     enabled: Enabled | None
 
 
@@ -160,6 +165,7 @@ class Root:
         self.help_option: HelpOption | None = settings.help_option
         self.version_option: VersionOption | None = settings.version_option
         self.dependencies: tuple[Dependency, ...] = settings.dependencies
+        self.platforms: tuple[Platform, ...] | None = settings.platforms
         self.enabled: Enabled | None = settings.enabled
         self.commands: dict[str, Command | Group | Lazy] = {}
         self.names: dict[str, Command | Group | Lazy] = {}
@@ -222,12 +228,12 @@ class Root:
 
     def is_enabled(self) -> bool:
         """
-        Call the ``enabled`` function, if there is one.
+        Check the platforms, then call the ``enabled`` function, if there is one.
 
         :returns: Whether the node can be used and is shown.
         :raises MistakeError: If the function doesn't return a bool.
         """
-        return _enabled(self.enabled, self)
+        return runs_here(self.platforms) and _enabled(self.enabled, self)
 
     def builtins(self, inherited: Builtins) -> Builtins:
         """
@@ -339,6 +345,7 @@ class Group(Root):
         *,
         aliases: str | Sequence[str] = (),
         help: str | None = None,
+        platforms: Platform | Sequence[Platform] | None = None,
         enabled: Enabled | None = None,
     ) -> None:
         """
@@ -349,22 +356,26 @@ class Group(Root):
         line runs it or shows its help, by ``validate``, when the completion
         script is made while it's enabled, and when Tab completes one of its
         values. The group's help always shows ``help`` for it. Once imported,
-        its name, aliases and ``enabled`` must be the ones given here.
+        its name, aliases, ``platforms`` and ``enabled`` must be the ones given
+        here.
 
         :param name: Its name, in snake_case.
         :param target: Where it is, such as ``"notes.archive:archive"``.
         :param aliases: Other names that run it, in snake_case, such as ``"ar"``
             or ``["ar", "old"]``.
         :param help: The line the group's help shows for it.
+        :param platforms: The platforms it runs on, checked without importing
+            it, as for ``@command``.
         :param enabled: A function without arguments that says whether it can
             be used, checked without importing it, as for ``@command``.
         :raises TypeError: If ``name``, ``target`` or ``help`` isn't a string,
-            ``aliases`` isn't a string or a list or tuple of strings, or
-            ``enabled`` isn't a callable that takes no arguments or is
-            ``async def``.
+            ``aliases`` or ``platforms`` isn't a string or a list or tuple of
+            strings, or ``enabled`` isn't a callable that takes no arguments or
+            is ``async def``.
         :raises ValueError: If ``name`` or an alias isn't snake_case, an alias is
             the name or is listed twice, ``target`` isn't ``"module:attribute"``,
-            or the name or an alias is already a name or alias in the group.
+            the name or an alias is already a name or alias in the group, or
+            ``platforms`` is empty, names an unknown platform or lists one twice.
         """
         checked = _lazy_name(name)
         entry = Lazy(
@@ -373,6 +384,7 @@ class Group(Root):
             _check_target(target),
             aliases=check_aliases(aliases, checked, "lazy()", "command"),
             help=check_help(help, "lazy()"),
+            platforms=_check_platforms(platforms, "lazy()"),
             enabled=_check_enabled(enabled, "lazy()"),
         )
         self._register(entry)
@@ -395,6 +407,7 @@ class Lazy:
         *,
         aliases: tuple[str, ...],
         help: str | None,
+        platforms: tuple[Platform, ...] | None,
         enabled: Enabled | None,
     ) -> None:
         """
@@ -405,6 +418,7 @@ class Lazy:
         :param target: Where it is, as ``"module:attribute"``.
         :param aliases: Its other names, in snake_case.
         :param help: The line the group's help shows for it.
+        :param platforms: The platforms it runs on.
         :param enabled: The function that says whether it can be used.
         """
         self.group: Group = group
@@ -412,6 +426,7 @@ class Lazy:
         self.target: str = target
         self.aliases: tuple[str, ...] = aliases
         self.help: str | None = help
+        self.platforms: tuple[Platform, ...] | None = platforms
         self.enabled: Enabled | None = enabled
         self.node: Command | Group | None = None
 
@@ -443,12 +458,12 @@ class Lazy:
 
     def is_enabled(self) -> bool:
         """
-        Call the ``enabled`` function, if there is one, without importing.
+        Check the platforms, then call ``enabled``, without importing.
 
         :returns: Whether the command or group can be used and is shown.
         :raises MistakeError: If the function doesn't return a bool.
         """
-        return _enabled(self.enabled, self.group)
+        return runs_here(self.platforms) and _enabled(self.enabled, self.group)
 
 
 def command(
@@ -458,6 +473,7 @@ def command(
     help_flags: bool | Sequence[str] = True,
     version: str | None = None,
     dependencies: Sequence[Dependency] = (),
+    platforms: Platform | Sequence[Platform] | None = None,
     enabled: Enabled | None = None,
 ) -> Callable[[Callable[..., object]], Command]:
     """
@@ -484,20 +500,27 @@ def command(
     :param dependencies: Dependencies between the inputs, such as
         ``[dependency.together("user", "password")]``, checked after the inputs
         are read.
+    :param platforms: The platforms the command runs on, from ``"linux"``,
+        ``"macos"`` and ``"windows"``, such as ``"linux"`` or
+        ``["linux", "macos"]``. On any other platform, it's left out as for
+        ``enabled``, and running it says which platforms it runs on. ``None``
+        means every platform.
     :param enabled: A function without arguments that says whether the command
         can be used, such as one that checks the user's role. When it returns
         ``False``, help and suggestions leave the command out, and running it
         is an error. A completion script made while it returns ``False``
-        leaves it out too. ``None`` means always.
+        leaves it out too. ``None`` means always. It's called only on the
+        command's platforms.
     :returns: A decorator that turns a function into the command.
     :raises TypeError: If ``name`` or ``version`` isn't a string, ``aliases``
-        isn't a string or a list or tuple of strings, ``help_flags`` isn't a
-        bool or a list or tuple of strings, ``dependencies`` isn't a list or
-        tuple of dependencies, or ``enabled`` isn't a callable that takes no
-        arguments or is ``async def``.
+        or ``platforms`` isn't a string or a list or tuple of strings,
+        ``help_flags`` isn't a bool or a list or tuple of strings,
+        ``dependencies`` isn't a list or tuple of dependencies, or ``enabled``
+        isn't a callable that takes no arguments or is ``async def``.
     :raises ValueError: If ``name`` or an alias isn't snake_case, an alias is
-        the name or is listed twice, or a help flag isn't a short or long flag
-        or is listed twice.
+        the name or is listed twice, a help flag isn't a short or long flag or
+        is listed twice, or ``platforms`` is empty, names an unknown platform
+        or lists one twice.
     """
     checked = check_name(name, "command")
     settings = Settings(
@@ -505,6 +528,7 @@ def command(
         help_option_for(help_flags, "command"),
         version_option_for(version, "command"),
         dependencies_for(dependencies, "command"),
+        _check_platforms(platforms, "@command"),
         _check_enabled(enabled, "@command"),
     )
 
@@ -521,6 +545,7 @@ def group(
     help_flags: bool | Sequence[str] = True,
     version: str | None = None,
     dependencies: Sequence[Dependency] = (),
+    platforms: Platform | Sequence[Platform] | None = None,
     enabled: Enabled | None = None,
 ) -> Callable[[Callable[..., object]], Group]:
     """
@@ -549,20 +574,27 @@ def group(
     :param dependencies: Dependencies between the group's own inputs, such as
         ``[dependency.together("user", "password")]``, checked after the inputs
         are read.
+    :param platforms: The platforms the group and everything in it run on,
+        from ``"linux"``, ``"macos"`` and ``"windows"``, such as ``"linux"`` or
+        ``["linux", "macos"]``. On any other platform, it's left out as for
+        ``enabled``, and running anything in it says which platforms it runs
+        on. ``None`` means every platform.
     :param enabled: A function without arguments that says whether the group
         and everything in it can be used, such as one that checks the user's
         role. When it returns ``False``, help and suggestions leave the group
         out, and running anything in it is an error. A completion script made
         while it returns ``False`` leaves it out too. ``None`` means always.
+        It's called only on the group's platforms.
     :returns: A decorator that turns a function into the group.
     :raises TypeError: If ``name`` or ``version`` isn't a string, ``aliases``
-        isn't a string or a list or tuple of strings, ``help_flags`` isn't a
-        bool or a list or tuple of strings, ``dependencies`` isn't a list or
-        tuple of dependencies, or ``enabled`` isn't a callable that takes no
-        arguments or is ``async def``.
+        or ``platforms`` isn't a string or a list or tuple of strings,
+        ``help_flags`` isn't a bool or a list or tuple of strings,
+        ``dependencies`` isn't a list or tuple of dependencies, or ``enabled``
+        isn't a callable that takes no arguments or is ``async def``.
     :raises ValueError: If ``name`` or an alias isn't snake_case, an alias is
-        the name or is listed twice, or a help flag isn't a short or long flag
-        or is listed twice.
+        the name or is listed twice, a help flag isn't a short or long flag or
+        is listed twice, or ``platforms`` is empty, names an unknown platform
+        or lists one twice.
     """
     checked = check_name(name, "group")
     settings = Settings(
@@ -570,6 +602,7 @@ def group(
         help_option_for(help_flags, "group"),
         version_option_for(version, "group"),
         dependencies_for(dependencies, "group"),
+        _check_platforms(platforms, "@group"),
         _check_enabled(enabled, "@group"),
     )
 
@@ -686,6 +719,14 @@ def _loaded(lazy: Lazy, found: object) -> "Command | Group":
             "Give both the same aliases."
         )
         raise ValueError(message)
+    if found.platforms != lazy.platforms:
+        message = (
+            f"{shown} has platforms={_platforms_shown(lazy.platforms)}, but the "
+            f"{found.kind} it loads has "
+            f"platforms={_platforms_shown(found.platforms)}. "
+            "Give both the same platforms."
+        )
+        raise ValueError(message)
     if found.enabled is not lazy.enabled:
         message = (
             f"{shown} has enabled={_enabled_name(lazy.enabled)}, but the "
@@ -694,6 +735,50 @@ def _loaded(lazy: Lazy, found: object) -> "Command | Group":
         )
         raise ValueError(message)
     return found
+
+
+def _check_platforms(platforms: object, caller: str) -> tuple[Platform, ...] | None:
+    if platforms is None:
+        return None
+    if isinstance(platforms, str):
+        return (_check_platform(platforms),)
+    if not isinstance(platforms, Sequence):
+        raise TypeError(_not_platforms(platforms, caller))
+    checked: list[Platform] = []
+    for platform in platforms:
+        if not isinstance(platform, str):
+            raise TypeError(_not_platforms(platforms, caller))
+        known = _check_platform(platform)
+        if known in checked:
+            message = f"platforms of {caller} lists {platform!r} twice. Remove one."
+            raise ValueError(message)
+        checked.append(known)
+    if not checked:
+        message = (
+            f"platforms of {caller} is empty. Name at least one, or leave "
+            "platforms out to run on every platform."
+        )
+        raise ValueError(message)
+    return tuple(platform for platform in PLATFORMS if platform in checked)
+
+
+def _check_platform(platform: str) -> Platform:
+    if platform in PLATFORMS:
+        return platform
+    choices = joined([repr(known) for known in PLATFORMS], "or")
+    message = f"{platform!r} isn't a platform. Use {choices}."
+    raise ValueError(message)
+
+
+def _not_platforms(platforms: object, caller: str) -> str:
+    return (
+        f"{caller} takes platforms as a string or a list of strings, such as "
+        f"'linux' or ['linux', 'macos'], not {platforms!r}."
+    )
+
+
+def _platforms_shown(platforms: tuple[Platform, ...] | None) -> str:
+    return repr(None if platforms is None else list(platforms))
 
 
 def _check_enabled(enabled: object, caller: str) -> Enabled | None:
@@ -767,7 +852,7 @@ def _main_or_mistake(root: Root, args: list[str]) -> int:
 
 def main(root: Node, args: list[str]) -> int:
     if not root.is_enabled():
-        _ = sys.stderr.write(f"error: {disabled(node_path([root]))}\n")
+        _ = sys.stderr.write(f"error: {disabled(node_path([root]), root)}\n")
         return 2
     reader = Reader(args)
     request = reader.read(root)

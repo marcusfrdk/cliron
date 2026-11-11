@@ -5,6 +5,7 @@
 ### Added
 
 - The `long` parameter of `option` and `flag` sets the flag users type in place of the one derived from the name, such as `@option("output_path", long="--output")`, and a long flag can now start with a digit, such as `--2fa`.
+- The `platforms` parameter of `command`, `group` and a group's `lazy` method takes `"linux"`, `"macos"` or `"windows"`, or a list of them, and on any other platform help, completion and suggestions leave the command out and running it says which platforms it runs on.
 
 ## v0.2.0
 

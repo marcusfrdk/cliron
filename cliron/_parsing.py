@@ -1,11 +1,12 @@
 import inspect
 import re
+import sys
 import typing
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from operator import itemgetter
 from types import FunctionType
-from typing import ClassVar, Protocol
+from typing import ClassVar, Literal, Protocol
 
 from cliron._builtin_options import DEFAULT_BUILTINS, Builtins
 from cliron._children import AnyChild, checks_on_run, run_child
@@ -24,6 +25,18 @@ _LINE_BREAK = re.compile(r"\r?\n")
 COMPLETION = "--completion"
 SHELLS = ("bash", "zsh", "fish")
 VALUES = "values"
+
+Platform = Literal["linux", "macos", "windows"]
+PLATFORMS: dict[Platform, str] = {
+    "linux": "Linux",
+    "macos": "macOS",
+    "windows": "Windows",
+}
+_SYSTEMS: dict[str, Platform] = {
+    "linux": "linux",
+    "darwin": "macos",
+    "win32": "windows",
+}
 
 
 class MistakeError(Exception):
@@ -110,6 +123,9 @@ class Entry(Protocol):
 
     def load(self) -> "Node": ...
 
+    @property
+    def platforms(self) -> tuple[Platform, ...] | None: ...
+
     def summary(self) -> str: ...
 
     def is_enabled(self) -> bool: ...
@@ -153,8 +169,16 @@ def node_path(nodes: Iterable[Node]) -> str:
     return " ".join(token(node.name) for node in nodes)
 
 
-def disabled(path: str) -> str:
-    return f"'{path}' is disabled."
+def runs_here(platforms: tuple[Platform, ...] | None) -> bool:
+    return platforms is None or _SYSTEMS.get(sys.platform) in platforms
+
+
+def disabled(path: str, entry: Entry) -> str:
+    platforms = entry.platforms
+    if platforms is None or runs_here(platforms):
+        return f"'{path}' is disabled."
+    shown = joined([PLATFORMS[platform] for platform in platforms], "and")
+    return f"'{path}' runs only on {shown}."
 
 
 class _Segment:
@@ -388,7 +412,7 @@ class Reader:
             segment.word_errors.append((start, ValueError(message)))
             return None
         if not command.is_enabled():
-            error = ValueError(disabled(f"{path} {token(command.name)}"))
+            error = ValueError(disabled(f"{path} {token(command.name)}", command))
             segment.word_errors.append((start, error))
             return None
         return command.load()

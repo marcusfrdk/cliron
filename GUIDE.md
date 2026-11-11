@@ -717,6 +717,39 @@ A disabled group hides everything in it. The function is called each time cliron
 
 `enabled=` hides a command. It doesn't protect it, since anyone who can set `NOTES_ROLE` can run `purge`. Check permissions inside the command.
 
+`platforms=` hides a command on the platforms it doesn't name. It takes `"linux"`, `"macos"` or `"windows"`, or a list of them, such as `["linux", "macos"]`.
+
+```python
+import os
+
+from cliron import command, group
+
+
+@group("notes")
+def notes() -> None:
+    """Keep notes."""
+
+
+@command("explore", platforms="windows")
+def explore() -> None:
+    """Open the notes folder in Explorer."""
+    os.startfile(".")
+
+
+notes.add(explore)
+
+if __name__ == "__main__":
+    notes()
+```
+
+```console
+$ python notes.py explore
+error: 'notes explore' runs only on Windows.
+Run 'notes --help' for usage.
+```
+
+A group's platforms cover everything in it. Other systems, such as FreeBSD, match none of the three, so use `enabled=` for them. A command can have both, and `enabled=` is called only on its platforms.
+
 ### Loading commands only when needed
 
 A command with slow imports can wait until it's used. In a package:
@@ -740,7 +773,7 @@ notes.lazy("report", "notes.report:report", help="Build a report.")
 | Making the completion script, while it's enabled | Suggestions for a mistyped name |
 | Completing one of its values                     |                                 |
 
-The command it loads must have the same name, aliases and `enabled` function as `lazy` gave it.
+The command it loads must have the same name, aliases, platforms and `enabled` function as `lazy` gave it.
 
 ### Help and version
 
@@ -1074,7 +1107,7 @@ It returns a `subprocess.CompletedProcess` with `returncode`, `stdout` and `stde
 
 Only what's written to `sys.stdout` and `sys.stderr` is captured. A CLI with async functions can't run inside an async test, since it runs its own event loop.
 
-`validate` checks the definitions of every command and group in a CLI, including the ones no test runs, and imports the lazy ones. It raises the error a run would print. It doesn't run commands, groups or hooks, and doesn't call `enabled`.
+`validate` checks the definitions of every command and group in a CLI, including the ones no test runs and the ones `platforms=` hides, and imports the lazy ones. It raises the error a run would print. It doesn't run commands, groups or hooks, and doesn't call `enabled`.
 
 ## 9. Shell completion
 

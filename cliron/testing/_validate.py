@@ -17,8 +17,8 @@ def validate(cli: Command | Group) -> None:
     :raises ValueError: If a default doesn't fit its decorator, a flag is used
         twice, dependencies name an input without a default, require each other
         in a cycle, contradict each other or repeat each other, or a lazy
-        command's name, aliases or ``enabled`` differ from the ones it was added
-        with.
+        command's name, aliases, ``platforms`` or ``enabled`` differ from the
+        ones it was added with.
     :raises ImportError: If a lazy command's module or attribute doesn't exist.
     """
     try:

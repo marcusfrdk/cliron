@@ -37,22 +37,25 @@ A wrong argument to any of them, such as a name that isn't snake_case, raises `T
 Turn a function into a command, or a group of commands.
 
 ```python
-command(name, *, aliases=(), help_flags=True, version=None, dependencies=(), enabled=None)
-group(name, *, aliases=(), help_flags=True, version=None, dependencies=(), enabled=None)
+command(name, *, aliases=(), help_flags=True, version=None, dependencies=(), platforms=None, enabled=None)
+group(name, *, aliases=(), help_flags=True, version=None, dependencies=(), platforms=None, enabled=None)
 ```
 
-| Parameter      | Default  | What it does                                                                                                                  |
-| -------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `name`         | required | Its name, in snake_case. Users type it in kebab-case                                                                          |
-| `aliases`      | `()`     | Other names that run it, such as `"ls"` or `["ls", "l"]`. Help lists them next to the name                                    |
-| `help_flags`   | `True`   | The flags that show help. `True` takes the enclosing group's, or `-h` and `--help` at the top. `False` or `[]` turns help off |
-| `version`      | `None`   | What `--version` prints, such as `"1.4.0"`. `None` takes the enclosing group's                                                |
-| `dependencies` | `()`     | [Rules between its inputs](#dependencies), such as `[dependency.together("user", "password")]`                                |
-| `enabled`      | `None`   | A function without arguments that says whether it can be used, such as one that checks the user's role. `None` means always   |
+| Parameter      | Default  | What it does                                                                                                                                |
+| -------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`         | required | Its name, in snake_case. Users type it in kebab-case                                                                                        |
+| `aliases`      | `()`     | Other names that run it, such as `"ls"` or `["ls", "l"]`. Help lists them next to the name                                                  |
+| `help_flags`   | `True`   | The flags that show help. `True` takes the enclosing group's, or `-h` and `--help` at the top. `False` or `[]` turns help off               |
+| `version`      | `None`   | What `--version` prints, such as `"1.4.0"`. `None` takes the enclosing group's                                                              |
+| `dependencies` | `()`     | [Rules between its inputs](#dependencies), such as `[dependency.together("user", "password")]`                                              |
+| `platforms`    | `None`   | The platforms it runs on, from `"linux"`, `"macos"` and `"windows"`, such as `"linux"` or `["linux", "macos"]`. `None` means every platform |
+| `enabled`      | `None`   | A function without arguments that says whether it can be used, such as one that checks the user's role. `None` means always                 |
 
 A group's `help_flags` and `version` also apply to everything in it that doesn't set its own.
 
 When `enabled` returns `False`, help and suggestions leave it out, and running it is an error. A completion script made at that moment leaves it out too. For a group, this covers everything in it. `enabled` can't be `async def`.
+
+On a platform that `platforms` doesn't name, it's left out the same way, and running it says where it runs, such as `'tool mount' runs only on Linux.` `enabled` is called only on the platforms it names. Other systems, such as FreeBSD, match none of them.
 
 |                        | Command                            | Group                                                                   |
 | ---------------------- | ---------------------------------- | ----------------------------------------------------------------------- |
@@ -97,16 +100,17 @@ The value is the unit. Time takes `ns`, `us`, `ms` or `s`, and memory takes `b`,
 Adds a command or group to the group, and imports it only when it's needed.
 
 ```python
-notes.lazy(name, target, *, aliases=(), help=None, enabled=None)
+notes.lazy(name, target, *, aliases=(), help=None, platforms=None, enabled=None)
 ```
 
-| Parameter | Default  | What it does                                                                                              |
-| --------- | -------- | --------------------------------------------------------------------------------------------------------- |
-| `name`    | required | Its name, in snake_case                                                                                   |
-| `target`  | required | Where it is, as `"module:attribute"`, such as `"notes.archive:archive"`                                   |
-| `aliases` | `()`     | Other names that run it, such as `"ar"` or `["ar", "old"]`                                                |
-| `help`    | `None`   | The line the group's help shows for it                                                                    |
-| `enabled` | `None`   | Whether it can be used, as for [`command`](#command-and-group). It's checked without importing the module |
+| Parameter   | Default  | What it does                                                                                                   |
+| ----------- | -------- | -------------------------------------------------------------------------------------------------------------- |
+| `name`      | required | Its name, in snake_case                                                                                        |
+| `target`    | required | Where it is, as `"module:attribute"`, such as `"notes.archive:archive"`                                        |
+| `aliases`   | `()`     | Other names that run it, such as `"ar"` or `["ar", "old"]`                                                     |
+| `help`      | `None`   | The line the group's help shows for it                                                                         |
+| `platforms` | `None`   | The platforms it runs on, as for [`command`](#command-and-group). They're checked without importing the module |
+| `enabled`   | `None`   | Whether it can be used, as for [`command`](#command-and-group). It's checked without importing the module      |
 
 The module, and everything it imports, is imported only when:
 
@@ -115,7 +119,7 @@ The module, and everything it imports, is imported only when:
 - a completion script is made while it's enabled;
 - [`validate`](#validate) checks the CLI.
 
-Once imported, its name, aliases and `enabled` must be the ones given here.
+Once imported, its name, aliases, `platforms` and `enabled` must be the ones given here. The platforms may be listed in any order.
 
 ## Parents
 
@@ -462,9 +466,9 @@ validate(cli)
 
 A run checks only the commands on its own command line, and only `validate` checks whether dependencies contradict or repeat each other. It raises:
 
-| Exception     | When                                                                                                                                             |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `TypeError`   | A function, parameter or annotation doesn't fit its decorators, or a lazy command's target isn't a command or group                              |
-| `ValueError`  | A default doesn't fit its decorator, a flag is used twice, or a lazy command's name, aliases or `enabled` differ from the ones it was added with |
-| `ValueError`  | Dependencies name an input without a default, require each other in a cycle, or contradict or repeat each other                                  |
-| `ImportError` | A lazy command's module or attribute doesn't exist                                                                                               |
+| Exception     | When                                                                                                                                                          |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `TypeError`   | A function, parameter or annotation doesn't fit its decorators, or a lazy command's target isn't a command or group                                           |
+| `ValueError`  | A default doesn't fit its decorator, a flag is used twice, or a lazy command's name, aliases, `platforms` or `enabled` differ from the ones it was added with |
+| `ValueError`  | Dependencies name an input without a default, require each other in a cycle, or contradict or repeat each other                                               |
+| `ImportError` | A lazy command's module or attribute doesn't exist                                                                                                            |
