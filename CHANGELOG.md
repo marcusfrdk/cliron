@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.2.1
+
 ### Added
 
 - The `long` parameter of `option` and `flag` sets the flag users type in place of the one derived from the name, such as `@option("output_path", long="--output")`, and a long flag can now start with a digit, such as `--2fa`.
